@@ -67,8 +67,12 @@ export default function Studio() {
   // Load bandana image when selection changes
   useEffect(() => {
     if (selectedBandana) {
+      console.log('Loading bandana image:', selectedBandana.imagePath);
       loadImage(selectedBandana.imagePath).then(img => {
+        console.log('Bandana image loaded:', img.width, 'x', img.height);
         bandanaImageRef.current = img;
+      }).catch(err => {
+        console.error('Failed to load bandana image:', err);
       });
     }
   }, [selectedBandana]);
@@ -99,11 +103,12 @@ export default function Studio() {
 
           // Draw bandana overlay if face detected
           if (landmarks && landmarks.length > 0 && bandanaImageRef.current) {
+            // Mirror the bandana to match the mirrored video
             ctx.save();
-            // Mirror bandana as well for consistency
             ctx.scale(-1, 1);
             ctx.translate(-canvas.width, 0);
-            drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height);
+            // Pass true for mirroredContext since we're in selfie mode
+            drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height, true);
             ctx.restore();
           }
         }

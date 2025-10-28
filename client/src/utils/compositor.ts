@@ -293,14 +293,28 @@ let lastBandanaOrientation: { angle: number; centerX: number; centerY: number; w
 
 /**
  * Render bandana with rotation following face orientation
+ * 
+ * @param mirroredContext - Set to true if the context is horizontally flipped (selfie mode)
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
   bandanaImage: HTMLImageElement,
   landmarks: LandmarkPoint[],
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  mirroredContext: boolean = false
 ) {
+  // Validate inputs
+  if (!ctx || !bandanaImage || !landmarks || landmarks.length === 0) {
+    return;
+  }
+  
+  // Check if bandana image is loaded
+  if (!bandanaImage.complete || bandanaImage.naturalWidth === 0) {
+    console.warn('Bandana image not fully loaded');
+    return;
+  }
+  
   // Get key forehead landmarks
   const foreheadTop = landmarks[10];
   const leftTemple = landmarks[127];
@@ -335,7 +349,12 @@ export function drawWrappedBandana(
   // Calculate face rotation angle from temple line
   const dx = rightX - leftX;
   const dy = rightY - leftY;
-  const angle = Math.atan2(dy, dx);
+  let angle = Math.atan2(dy, dx);
+  
+  // In mirrored context, negate the angle to correct rotation direction
+  if (mirroredContext) {
+    angle = -angle;
+  }
   
   const faceWidth = Math.sqrt(dx * dx + dy * dy);
   
@@ -345,6 +364,20 @@ export function drawWrappedBandana(
   
   // Make bandana slightly wider than face for wrapping appearance
   const bandanaWidth = faceWidth * 1.2;
+  
+  // Log for debugging (only occasionally to avoid spam)
+  if (Math.random() < 0.05) {
+    console.log('Bandana render:', {
+      mirrored: mirroredContext,
+      angle: (angle * 180 / Math.PI).toFixed(1) + '°',
+      centerX: centerX.toFixed(0),
+      centerY: centerY.toFixed(0),
+      width: bandanaWidth.toFixed(0),
+      height: bandanaHeight.toFixed(0),
+      leftTemple: `(${leftX.toFixed(0)}, ${leftY.toFixed(0)})`,
+      rightTemple: `(${rightX.toFixed(0)}, ${rightY.toFixed(0)})`
+    });
+  }
   
   // Cache this orientation
   lastBandanaOrientation = {
@@ -440,10 +473,15 @@ export async function compositeImage(options: CompositeOptions): Promise<Blob> {
 
   // 3. Draw bandana overlay (if face detected and bandana selected)
   if (bandanaImage && landmarks && landmarks.length > 0) {
-    ctx.save();
-    ctx.translate(offsetX, offsetY);
-    drawWrappedBandana(ctx, bandanaImage, landmarks, drawWidth, drawHeight);
-    ctx.restore();
+    try {
+      ctx.save();
+      ctx.translate(offsetX, offsetY);
+      drawWrappedBandana(ctx, bandanaImage, landmarks, drawWidth, drawHeight);
+      ctx.restore();
+    } catch (error) {
+      console.error('Error drawing bandana in composite:', error);
+      ctx.restore(); // Ensure we restore even on error
+    }
   }
 
   // 4. Draw Survivor 50 logo watermark (bottom-left, 48px inset)
