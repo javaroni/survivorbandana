@@ -68,6 +68,100 @@ export function getFaceBoundingBox(landmarks: LandmarkPoint[]): {
 let lastValidSegments: any = null;
 
 /**
+ * Extract forehead landmarks that define the bandana wrap curve
+ * Returns points from left temple to right temple along the forehead
+ */
+function getForeheadCurve(landmarks: LandmarkPoint[]): LandmarkPoint[] {
+  // Create a smooth curve across the forehead using key landmarks
+  // Left to right: left temple -> left brow -> center forehead -> right brow -> right temple
+  const curveIndices = [
+    127, // Left temple
+    162, 21, 54, 103, 67, 109, 10, // Left side to center
+    338, 297, 332, 284, 251, 389, 356 // Center to right temple
+  ];
+  
+  return curveIndices.map(i => landmarks[i]).filter(Boolean);
+}
+
+/**
+ * Generate triangulated mesh for smooth bandana wrapping
+ * Creates a strip of quads (2 triangles each) along the forehead curve
+ */
+function generateBandanaMesh(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number) {
+  const foreheadCurve = getForeheadCurve(landmarks);
+  
+  if (foreheadCurve.length < 3) {
+    return null;
+  }
+  
+  // Calculate bandana height based on forehead to eyebrow distance
+  const foreheadTop = landmarks[10]; // Center top
+  const leftBrow = landmarks[105];
+  const rightBrow = landmarks[334];
+  const avgBrowY = ((leftBrow?.y || 0) + (rightBrow?.y || 0)) / 2;
+  const bandanaHeight = Math.max(30, Math.abs((avgBrowY - (foreheadTop?.y || 0)) * canvasHeight * 2.2));
+  
+  // Create quads along the curve
+  const quads: Array<{
+    // Screen coordinates (destination)
+    topLeft: { x: number; y: number };
+    topRight: { x: number; y: number };
+    bottomLeft: { x: number; y: number };
+    bottomRight: { x: number; y: number };
+    // UV coordinates (source texture)
+    uvTopLeft: { x: number; y: number };
+    uvTopRight: { x: number; y: number };
+    uvBottomLeft: { x: number; y: number };
+    uvBottomRight: { x: number; y: number };
+  }> = [];
+  
+  const numSegments = foreheadCurve.length - 1;
+  
+  for (let i = 0; i < numSegments; i++) {
+    const p1 = foreheadCurve[i];
+    const p2 = foreheadCurve[i + 1];
+    
+    // Screen coordinates
+    const x1 = p1.x * canvasWidth;
+    const y1 = p1.y * canvasHeight;
+    const x2 = p2.x * canvasWidth;
+    const y2 = p2.y * canvasHeight;
+    
+    // Calculate normal direction (perpendicular to curve) for bottom edge
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const normalX = -dy / length;
+    const normalY = dx / length;
+    
+    // Bottom edge points (extended downward along normal)
+    const bottomX1 = x1 + normalX * bandanaHeight;
+    const bottomY1 = y1 + normalY * bandanaHeight;
+    const bottomX2 = x2 + normalX * bandanaHeight;
+    const bottomY2 = y2 + normalY * bandanaHeight;
+    
+    // UV coordinates (normalized 0-1 across bandana texture)
+    const uLeft = i / numSegments;
+    const uRight = (i + 1) / numSegments;
+    
+    quads.push({
+      // Destination (screen space)
+      topLeft: { x: x1, y: y1 },
+      topRight: { x: x2, y: y2 },
+      bottomLeft: { x: bottomX1, y: bottomY1 },
+      bottomRight: { x: bottomX2, y: bottomY2 },
+      // Source (texture UV space)
+      uvTopLeft: { x: uLeft, y: 0 },
+      uvTopRight: { x: uRight, y: 0 },
+      uvBottomLeft: { x: uLeft, y: 1 },
+      uvBottomRight: { x: uRight, y: 1 },
+    });
+  }
+  
+  return quads;
+}
+
+/**
  * Calculate bandana wrapping positions for three segments (left, center, right)
  */
 export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number) {
@@ -153,7 +247,49 @@ export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: numb
 }
 
 /**
- * Render bandana with three-segment wrapping effect
+ * Calculate affine transform matrix from source quad to destination quad
+ */
+function calculateQuadTransform(
+  srcQuad: { topLeft: {x: number, y: number}, topRight: {x: number, y: number}, bottomLeft: {x: number, y: number} },
+  dstQuad: { topLeft: {x: number, y: number}, topRight: {x: number, y: number}, bottomLeft: {x: number, y: number} }
+): { a: number; b: number; c: number; d: number; e: number; f: number } {
+  // Affine transform maps source coordinates to destination
+  // [a c e]   [x]   [x']
+  // [b d f] * [y] = [y']
+  // [0 0 1]   [1]   [1 ]
+  
+  const src = srcQuad;
+  const dst = dstQuad;
+  
+  // Set up the system of equations
+  const x0 = src.topLeft.x, y0 = src.topLeft.y;
+  const x1 = src.topRight.x, y1 = src.topRight.y;
+  const x2 = src.bottomLeft.x, y2 = src.bottomLeft.y;
+  
+  const u0 = dst.topLeft.x, v0 = dst.topLeft.y;
+  const u1 = dst.topRight.x, v1 = dst.topRight.y;
+  const u2 = dst.bottomLeft.x, v2 = dst.bottomLeft.y;
+  
+  // Solve for affine transform coefficients
+  const denom = x0 * (y1 - y2) - x1 * (y0 - y2) + x2 * (y0 - y1);
+  
+  if (Math.abs(denom) < 1e-10) {
+    // Degenerate case, return identity
+    return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  }
+  
+  const a = (u0 * (y1 - y2) - u1 * (y0 - y2) + u2 * (y0 - y1)) / denom;
+  const b = (v0 * (y1 - y2) - v1 * (y0 - y2) + v2 * (y0 - y1)) / denom;
+  const c = (x0 * (u1 - u2) - x1 * (u0 - u2) + x2 * (u0 - u1)) / denom;
+  const d = (x0 * (v1 - v2) - x1 * (v0 - v2) + x2 * (v0 - v1)) / denom;
+  const e = (x0 * (y1 * u2 - y2 * u1) - x1 * (y0 * u2 - y2 * u0) + x2 * (y0 * u1 - y1 * u0)) / denom;
+  const f = (x0 * (y1 * v2 - y2 * v1) - x1 * (y0 * v2 - y2 * v0) + x2 * (y0 * v1 - y1 * v0)) / denom;
+  
+  return { a, b, c, d, e, f };
+}
+
+/**
+ * Render bandana with piecewise affine warping for smooth fabric-like wrapping
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -162,43 +298,62 @@ export function drawWrappedBandana(
   canvasWidth: number,
   canvasHeight: number
 ) {
-  const segments = getBandanaSegments(landmarks, canvasWidth, canvasHeight);
+  const quads = generateBandanaMesh(landmarks, canvasWidth, canvasHeight);
+  
+  if (!quads || quads.length === 0) {
+    // Fallback to simple centered rendering
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight * 0.25;
+    const width = canvasWidth * 0.6;
+    const height = canvasHeight * 0.15;
+    
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(bandanaImage, centerX - width / 2, centerY, width, height);
+    ctx.restore();
+    return;
+  }
+  
   const imgWidth = bandanaImage.width;
   const imgHeight = bandanaImage.height;
   
-  // Draw left side (rotated around center for 3D wrap effect)
-  ctx.save();
-  ctx.translate(segments.left.x, segments.left.y + segments.left.height / 2); // Translate to center
-  ctx.rotate((segments.left.angle * Math.PI) / 180);
-  ctx.globalAlpha = 0.85; // Slightly transparent for depth
-  ctx.drawImage(
-    bandanaImage,
-    0, 0, imgWidth * 0.35, imgHeight, // Source: left 35% of image
-    -segments.left.width, -segments.left.height / 2, segments.left.width, segments.left.height // Draw centered
-  );
-  ctx.restore();
-  
-  // Draw center (main section with logo)
-  ctx.save();
-  ctx.drawImage(
-    bandanaImage,
-    imgWidth * 0.3, 0, imgWidth * 0.4, imgHeight, // Source: center 40% with logo
-    segments.center.x - segments.center.width / 2, segments.center.y,
-    segments.center.width, segments.center.height
-  );
-  ctx.restore();
-  
-  // Draw right side (rotated around center for 3D wrap effect)
-  ctx.save();
-  ctx.translate(segments.right.x, segments.right.y + segments.right.height / 2); // Translate to center
-  ctx.rotate((segments.right.angle * Math.PI) / 180);
-  ctx.globalAlpha = 0.85; // Slightly transparent for depth
-  ctx.drawImage(
-    bandanaImage,
-    imgWidth * 0.65, 0, imgWidth * 0.35, imgHeight, // Source: right 35% of image
-    0, -segments.right.height / 2, segments.right.width, segments.right.height // Draw centered
-  );
-  ctx.restore();
+  // Render each quad with affine transformation
+  for (const quad of quads) {
+    ctx.save();
+    
+    // Create clipping path for destination quad
+    ctx.beginPath();
+    ctx.moveTo(quad.topLeft.x, quad.topLeft.y);
+    ctx.lineTo(quad.topRight.x, quad.topRight.y);
+    ctx.lineTo(quad.bottomRight.x, quad.bottomRight.y);
+    ctx.lineTo(quad.bottomLeft.x, quad.bottomLeft.y);
+    ctx.closePath();
+    ctx.clip();
+    
+    // Calculate source quad in image pixel coordinates
+    const srcQuad = {
+      topLeft: { x: quad.uvTopLeft.x * imgWidth, y: quad.uvTopLeft.y * imgHeight },
+      topRight: { x: quad.uvTopRight.x * imgWidth, y: quad.uvTopRight.y * imgHeight },
+      bottomLeft: { x: quad.uvBottomLeft.x * imgWidth, y: quad.uvBottomLeft.y * imgHeight },
+    };
+    
+    // Calculate destination quad
+    const dstQuad = {
+      topLeft: quad.topLeft,
+      topRight: quad.topRight,
+      bottomLeft: quad.bottomLeft,
+    };
+    
+    // Calculate and apply affine transform
+    const transform = calculateQuadTransform(srcQuad, dstQuad);
+    ctx.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f);
+    
+    // Draw the bandana image (transform will map it correctly)
+    ctx.globalAlpha = 0.95;
+    ctx.drawImage(bandanaImage, 0, 0, imgWidth, imgHeight);
+    
+    ctx.restore();
+  }
 }
 
 /**
