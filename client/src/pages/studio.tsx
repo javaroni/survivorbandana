@@ -50,15 +50,20 @@ export default function Studio() {
   // Initialize camera and face tracking on mount
   useEffect(() => {
     const init = async () => {
+      console.log('Starting camera initialization...');
       await startCamera();
+      console.log('Camera started');
       await initializeAudio();
+      console.log('Audio initialized');
     };
     init();
   }, []);
 
   // Start face tracking when camera is ready
   useEffect(() => {
+    console.log('isReady changed:', isReady, 'videoRef.current:', !!videoRef.current);
     if (isReady && videoRef.current) {
+      console.log('Initializing face tracking...');
       initTracking(videoRef.current);
     }
   }, [isReady, initTracking]);
@@ -233,14 +238,14 @@ export default function Studio() {
           autoPlay
           playsInline
           muted
-          className="absolute w-1 h-1 opacity-0 pointer-events-none"
-          style={{ top: -9999 }}
+          className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
         />
         
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover"
+          className="absolute inset-0 w-full h-full object-cover z-10"
           data-testid="canvas-preview"
+          style={{ display: 'none' }}
         />
 
         {/* Face detection indicator */}
