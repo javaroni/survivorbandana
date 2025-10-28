@@ -103,12 +103,11 @@ export default function Studio() {
 
           // Draw bandana overlay if face detected
           if (landmarks && landmarks.length > 0 && bandanaImageRef.current) {
-            // Mirror the bandana to match the mirrored video
+            // Apply same mirroring as video for consistency
             ctx.save();
             ctx.scale(-1, 1);
             ctx.translate(-canvas.width, 0);
-            // Pass true for mirroredContext since we're in selfie mode
-            drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height, true);
+            drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height);
             ctx.restore();
           }
         }

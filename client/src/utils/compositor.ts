@@ -288,13 +288,9 @@ function calculateQuadTransform(
   return { a, b, c, d, e, f };
 }
 
-// Cache for last valid bandana orientation to prevent jitter
-let lastBandanaOrientation: { angle: number; centerX: number; centerY: number; width: number; height: number } | null = null;
-
 /**
- * Render bandana with rotation following face orientation
- * 
- * @param mirroredContext - Set to true if the context is horizontally flipped (selfie mode)
+ * Ultra-simple, crash-proof bandana rendering
+ * Just tracks forehead position - no rotation or complex math
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -304,103 +300,50 @@ export function drawWrappedBandana(
   canvasHeight: number,
   mirroredContext: boolean = false
 ) {
-  // Validate inputs
-  if (!ctx || !bandanaImage || !landmarks || landmarks.length === 0) {
-    return;
-  }
-  
-  // Check if bandana image is loaded
-  if (!bandanaImage.complete || bandanaImage.naturalWidth === 0) {
-    console.warn('Bandana image not fully loaded');
-    return;
-  }
-  
-  // Get key forehead landmarks
-  const foreheadTop = landmarks[10];
-  const leftTemple = landmarks[127];
-  const rightTemple = landmarks[356];
-  const leftBrow = landmarks[105];
-  const rightBrow = landmarks[334];
-  
-  // Validate landmarks
-  if (!foreheadTop || !leftTemple || !rightTemple || !leftBrow || !rightBrow) {
-    // Use last valid orientation if available
-    if (lastBandanaOrientation) {
-      const { angle, centerX, centerY, width, height } = lastBandanaOrientation;
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(angle);
-      ctx.globalAlpha = 0.95;
-      ctx.drawImage(bandanaImage, -width / 2, -height / 2, width, height);
-      ctx.restore();
+  try {
+    // Validate everything
+    if (!ctx || !bandanaImage || !landmarks || landmarks.length < 468) {
+      return;
     }
+    
+    if (!bandanaImage.complete || bandanaImage.naturalWidth === 0) {
+      return;
+    }
+    
+    // Get simple forehead landmarks
+    const forehead = landmarks[10];
+    const leftTemple = landmarks[127];
+    const rightTemple = landmarks[356];
+    
+    if (!forehead || !leftTemple || !rightTemple) {
+      return;
+    }
+    
+    // Convert to pixel coordinates
+    const foreheadX = forehead.x * canvasWidth;
+    const foreheadY = forehead.y * canvasHeight;
+    const leftX = leftTemple.x * canvasWidth;
+    const rightX = rightTemple.x * canvasWidth;
+    
+    // Calculate simple width and height
+    const faceWidth = Math.abs(rightX - leftX);
+    const bandanaWidth = faceWidth * 1.3;
+    const bandanaHeight = bandanaWidth * 0.4;
+    
+    // Position at top of forehead
+    const x = foreheadX - bandanaWidth / 2;
+    const y = foreheadY - bandanaHeight / 2;
+    
+    // Draw simple rectangle - no rotation, no transforms
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(bandanaImage, x, y, bandanaWidth, bandanaHeight);
+    ctx.restore();
+    
+  } catch (error) {
+    // Silently fail - don't crash the render loop
     return;
   }
-  
-  // Calculate bandana position
-  const centerX = foreheadTop.x * canvasWidth;
-  const centerY = foreheadTop.y * canvasHeight;
-  
-  const leftX = leftTemple.x * canvasWidth;
-  const leftY = leftTemple.y * canvasHeight;
-  const rightX = rightTemple.x * canvasWidth;
-  const rightY = rightTemple.y * canvasHeight;
-  
-  // Calculate face rotation angle from temple line
-  const dx = rightX - leftX;
-  const dy = rightY - leftY;
-  let angle = Math.atan2(dy, dx);
-  
-  // In mirrored context, negate the angle to correct rotation direction
-  if (mirroredContext) {
-    angle = -angle;
-  }
-  
-  const faceWidth = Math.sqrt(dx * dx + dy * dy);
-  
-  // Calculate height based on forehead to eyebrow distance
-  const avgBrowY = ((leftBrow.y + rightBrow.y) / 2) * canvasHeight;
-  const bandanaHeight = Math.max(40, Math.abs(avgBrowY - centerY) * 2.5);
-  
-  // Make bandana slightly wider than face for wrapping appearance
-  const bandanaWidth = faceWidth * 1.2;
-  
-  // Log for debugging (only occasionally to avoid spam)
-  if (Math.random() < 0.05) {
-    console.log('Bandana render:', {
-      mirrored: mirroredContext,
-      angle: (angle * 180 / Math.PI).toFixed(1) + '°',
-      centerX: centerX.toFixed(0),
-      centerY: centerY.toFixed(0),
-      width: bandanaWidth.toFixed(0),
-      height: bandanaHeight.toFixed(0),
-      leftTemple: `(${leftX.toFixed(0)}, ${leftY.toFixed(0)})`,
-      rightTemple: `(${rightX.toFixed(0)}, ${rightY.toFixed(0)})`
-    });
-  }
-  
-  // Cache this orientation
-  lastBandanaOrientation = {
-    angle,
-    centerX,
-    centerY: centerY - bandanaHeight * 0.2, // Offset upward
-    width: bandanaWidth,
-    height: bandanaHeight,
-  };
-  
-  // Draw bandana with rotation
-  ctx.save();
-  ctx.translate(centerX, centerY - bandanaHeight * 0.2);
-  ctx.rotate(angle);
-  ctx.globalAlpha = 0.95;
-  ctx.drawImage(
-    bandanaImage,
-    -bandanaWidth / 2,
-    -bandanaHeight / 2,
-    bandanaWidth,
-    bandanaHeight
-  );
-  ctx.restore();
 }
 
 /**
