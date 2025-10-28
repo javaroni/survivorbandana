@@ -289,7 +289,7 @@ function calculateQuadTransform(
 }
 
 /**
- * Render bandana with piecewise affine warping for smooth fabric-like wrapping
+ * Render bandana with simple positioning that follows face landmarks
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -298,62 +298,46 @@ export function drawWrappedBandana(
   canvasWidth: number,
   canvasHeight: number
 ) {
-  const quads = generateBandanaMesh(landmarks, canvasWidth, canvasHeight);
+  // Get key forehead landmarks
+  const foreheadTop = landmarks[10];
+  const leftTemple = landmarks[127];
+  const rightTemple = landmarks[356];
+  const leftBrow = landmarks[105];
+  const rightBrow = landmarks[334];
   
-  if (!quads || quads.length === 0) {
-    // Fallback to simple centered rendering
-    const centerX = canvasWidth / 2;
-    const centerY = canvasHeight * 0.25;
-    const width = canvasWidth * 0.6;
-    const height = canvasHeight * 0.15;
-    
-    ctx.save();
-    ctx.globalAlpha = 0.9;
-    ctx.drawImage(bandanaImage, centerX - width / 2, centerY, width, height);
-    ctx.restore();
-    return;
+  // Validate landmarks
+  if (!foreheadTop || !leftTemple || !rightTemple || !leftBrow || !rightBrow) {
+    return; // Don't render if we don't have valid landmarks
   }
   
-  const imgWidth = bandanaImage.width;
-  const imgHeight = bandanaImage.height;
+  // Calculate bandana position
+  const centerX = foreheadTop.x * canvasWidth;
+  const centerY = foreheadTop.y * canvasHeight;
   
-  // Render each quad with affine transformation
-  for (const quad of quads) {
-    ctx.save();
-    
-    // Create clipping path for destination quad
-    ctx.beginPath();
-    ctx.moveTo(quad.topLeft.x, quad.topLeft.y);
-    ctx.lineTo(quad.topRight.x, quad.topRight.y);
-    ctx.lineTo(quad.bottomRight.x, quad.bottomRight.y);
-    ctx.lineTo(quad.bottomLeft.x, quad.bottomLeft.y);
-    ctx.closePath();
-    ctx.clip();
-    
-    // Calculate source quad in image pixel coordinates
-    const srcQuad = {
-      topLeft: { x: quad.uvTopLeft.x * imgWidth, y: quad.uvTopLeft.y * imgHeight },
-      topRight: { x: quad.uvTopRight.x * imgWidth, y: quad.uvTopRight.y * imgHeight },
-      bottomLeft: { x: quad.uvBottomLeft.x * imgWidth, y: quad.uvBottomLeft.y * imgHeight },
-    };
-    
-    // Calculate destination quad
-    const dstQuad = {
-      topLeft: quad.topLeft,
-      topRight: quad.topRight,
-      bottomLeft: quad.bottomLeft,
-    };
-    
-    // Calculate and apply affine transform
-    const transform = calculateQuadTransform(srcQuad, dstQuad);
-    ctx.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f);
-    
-    // Draw the bandana image (transform will map it correctly)
-    ctx.globalAlpha = 0.95;
-    ctx.drawImage(bandanaImage, 0, 0, imgWidth, imgHeight);
-    
-    ctx.restore();
-  }
+  const leftX = leftTemple.x * canvasWidth;
+  const rightX = rightTemple.x * canvasWidth;
+  const faceWidth = Math.abs(rightX - leftX);
+  
+  // Calculate height based on forehead to eyebrow distance
+  const avgBrowY = ((leftBrow.y + rightBrow.y) / 2) * canvasHeight;
+  const bandanaHeight = Math.max(40, Math.abs(avgBrowY - centerY) * 2.5);
+  
+  // Make bandana slightly wider than face for wrapping appearance
+  const bandanaWidth = faceWidth * 1.2;
+  
+  // Position bandana at top of forehead
+  const x = centerX - bandanaWidth / 2;
+  const y = centerY - bandanaHeight * 0.3; // Offset upward to sit on forehead
+  
+  // Draw bandana
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  ctx.drawImage(
+    bandanaImage,
+    x, y,
+    bandanaWidth, bandanaHeight
+  );
+  ctx.restore();
 }
 
 /**
