@@ -64,6 +64,9 @@ export function getFaceBoundingBox(landmarks: LandmarkPoint[]): {
   };
 }
 
+// Cache for last valid segments to prevent flickering
+let lastValidSegments: any = null;
+
 /**
  * Calculate bandana wrapping positions for three segments (left, center, right)
  */
@@ -85,6 +88,21 @@ export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: numb
   const leftBrowInner = landmarks[105];
   const rightBrowInner = landmarks[334];
 
+  // Validate landmarks exist
+  if (!foreheadCenter || !leftTemple || !rightTemple || 
+      !leftBrowOuter || !rightBrowOuter || !leftBrowInner || !rightBrowInner) {
+    // Return last valid segments if available
+    if (lastValidSegments) {
+      return lastValidSegments;
+    }
+    // Fallback to centered position
+    return {
+      center: { x: canvasWidth / 2, y: canvasHeight * 0.2, width: canvasWidth * 0.4, height: canvasHeight * 0.15 },
+      left: { x: canvasWidth * 0.3, y: canvasHeight * 0.2, width: canvasWidth * 0.2, height: canvasHeight * 0.13, angle: 15 },
+      right: { x: canvasWidth * 0.7, y: canvasHeight * 0.2, width: canvasWidth * 0.2, height: canvasHeight * 0.13, angle: -15 },
+    };
+  }
+
   // Calculate positions in canvas coordinates
   const centerX = foreheadCenter.x * canvasWidth;
   const centerY = foreheadCenter.y * canvasHeight;
@@ -97,12 +115,15 @@ export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: numb
   
   // Calculate bandana height based on forehead to eyebrow distance
   const avgBrowY = ((leftBrowOuter.y + rightBrowOuter.y + leftBrowInner.y + rightBrowInner.y) / 4) * canvasHeight;
-  const bandanaHeight = (avgBrowY - centerY) * 2.2; // Cover from top of forehead to just above eyebrows
+  const rawBandanaHeight = (avgBrowY - centerY) * 2.2;
+  
+  // Clamp to positive value to prevent flipping (minimum 30px)
+  const bandanaHeight = Math.max(30, rawBandanaHeight);
   
   // Face width for scaling
   const faceWidth = Math.abs(rightTempleX - leftTempleX);
   
-  return {
+  const segments = {
     center: {
       x: centerX,
       y: centerY,
@@ -124,6 +145,11 @@ export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: numb
       angle: -15, // Degrees to rotate for wrapping effect
     },
   };
+  
+  // Cache valid segments
+  lastValidSegments = segments;
+  
+  return segments;
 }
 
 /**
@@ -140,15 +166,15 @@ export function drawWrappedBandana(
   const imgWidth = bandanaImage.width;
   const imgHeight = bandanaImage.height;
   
-  // Draw left side (rotated)
+  // Draw left side (rotated around center for 3D wrap effect)
   ctx.save();
-  ctx.translate(segments.left.x, segments.left.y);
+  ctx.translate(segments.left.x, segments.left.y + segments.left.height / 2); // Translate to center
   ctx.rotate((segments.left.angle * Math.PI) / 180);
   ctx.globalAlpha = 0.85; // Slightly transparent for depth
   ctx.drawImage(
     bandanaImage,
     0, 0, imgWidth * 0.35, imgHeight, // Source: left 35% of image
-    -segments.left.width, 0, segments.left.width, segments.left.height // Destination
+    -segments.left.width, -segments.left.height / 2, segments.left.width, segments.left.height // Draw centered
   );
   ctx.restore();
   
@@ -162,15 +188,15 @@ export function drawWrappedBandana(
   );
   ctx.restore();
   
-  // Draw right side (rotated)
+  // Draw right side (rotated around center for 3D wrap effect)
   ctx.save();
-  ctx.translate(segments.right.x, segments.right.y);
+  ctx.translate(segments.right.x, segments.right.y + segments.right.height / 2); // Translate to center
   ctx.rotate((segments.right.angle * Math.PI) / 180);
   ctx.globalAlpha = 0.85; // Slightly transparent for depth
   ctx.drawImage(
     bandanaImage,
     imgWidth * 0.65, 0, imgWidth * 0.35, imgHeight, // Source: right 35% of image
-    0, 0, segments.right.width, segments.right.height // Destination
+    0, -segments.right.height / 2, segments.right.width, segments.right.height // Draw centered
   );
   ctx.restore();
 }
