@@ -233,7 +233,8 @@ export default function Studio() {
           autoPlay
           playsInline
           muted
-          className="absolute inset-0 w-full h-full object-cover hidden"
+          className="absolute w-1 h-1 opacity-0 pointer-events-none"
+          style={{ top: -9999 }}
         />
         
         <canvas

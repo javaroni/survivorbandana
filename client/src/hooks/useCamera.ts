@@ -42,7 +42,14 @@ export function useCamera(): UseCameraReturn {
         await new Promise<void>((resolve) => {
           if (videoRef.current) {
             videoRef.current.onloadedmetadata = () => {
+              console.log('Video metadata loaded');
               videoRef.current?.play().then(() => {
+                console.log('Video playing, setting isReady to true');
+                setIsReady(true);
+                resolve();
+              }).catch((err) => {
+                console.error('Video play error:', err);
+                // Try to set ready anyway
                 setIsReady(true);
                 resolve();
               });
@@ -50,6 +57,8 @@ export function useCamera(): UseCameraReturn {
           }
         });
       }
+      
+      console.log('Camera started, isReady should be true');
     } catch (err) {
       console.error('Camera access error:', err);
       
