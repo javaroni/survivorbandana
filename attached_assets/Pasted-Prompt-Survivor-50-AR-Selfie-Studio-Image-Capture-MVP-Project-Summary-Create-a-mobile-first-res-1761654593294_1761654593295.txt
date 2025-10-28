@@ -1,0 +1,213 @@
+Prompt: Survivor 50 AR Selfie Studio — Image Capture MVP
+
+Project Summary
+Create a mobile-first, responsive web app where fans can open their phone camera, virtually “wear” a Survivor-style bandana, place themselves into a Survivor background, and capture a 1080 × 1920 (9:16) branded photo.
+The build must be modular so that short AR video capture (3–5 seconds) can be added later without refactoring.
+
+🌴 Core User Flow
+
+Landing Screen
+
+Survivor 50 logo and tagline “Step Into the Game.”
+
+“Start” button → requests camera access and unlocks audio context.
+
+Themed background: parchment, wood grain, warm torch light.
+
+AR Studio
+
+Live front-camera preview using MediaPipe FaceMesh for head tracking.
+
+Pickers:
+
+Bandana (3 styles) — assets provided.
+
+Background (3 scenes) — realistic island, campfire, tribal council.
+
+Bandana stays aligned with head movement; background replaces environment.
+
+Preview all combinations before capture.
+
+Capture
+
+On tap, play a short tribal drum audio cue.
+
+Freeze current frame, composite layers:
+
+Selected background
+
+Camera frame
+
+Bandana overlay (tracked warp)
+
+Survivor 50 logo (bottom-left, ~48 px inset)
+
+Export a PNG or JPEG (85–90 %), 1080 × 1920.
+
+Preview & Share
+
+Show captured image.
+
+Buttons:
+
+Save to Device
+
+Share → Web Share API (L2) with graceful fallbacks.
+
+Optional CTA: “Learn More About Survivor 50” → official campaign link.
+
+🧠 Technical Implementation
+Front-End
+
+Framework: Next.js 15 (React 18+)
+
+Styling: Tailwind CSS + Framer Motion (for transitions)
+
+Camera: navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+
+Face Tracking: MediaPipe Face Mesh (468 landmarks)
+
+Stabilize with One-Euro filter or Kalman smoothing.
+
+Compositing Pipeline:
+
+Canvas/WebGL render order → background → video frame → bandana mesh → logo.
+
+Maintain 9:16 preview and export.
+
+Audio Cue: Web Audio API (preloaded AAC + OGG).
+
+Export: canvas.toBlob() → createObjectURL → download/share.
+
+Share: Web Share API (L2); if unsupported, show “Download → Share manually.”
+
+Performance Goal: 24–30 fps live preview.
+
+Backend / Serverless
+
+Initial MVP: Pure client-side, no upload.
+
+Future Stub: /api/transcode → returns 501; reserved for video pipeline.
+
+Hosting: Vercel or Netlify (HTTPS required).
+
+Analytics: GA4 + Meta Pixel (event tracking for loads, captures, shares).
+
+🎨 Design & Branding
+Element	Details
+Fonts	Rugged sans / stencil typeface matching Survivor branding.
+Palette	Warm oranges, teals, yellows with wood + torch accents.
+Textures	Parchment backgrounds, burned-edge frames, bamboo buttons.
+Logo	Survivor 50 transparent PNG/SVG, bottom-left of export.
+🧩 Architecture & Code Structure
+
+Design the file tree for modularity and video-ready extension.
+
+/app
+  /layout.tsx                 // Global layout, Survivor theme, meta tags
+  /page.tsx                   // Landing screen
+  /studio/page.tsx            // Main AR Studio screen
+  /studio/hooks/
+    useCamera.ts              // Handles camera init & cleanup
+    useFaceTracking.ts        // MediaPipe setup & landmark smoothing
+    useAudioCue.ts            // Loads & plays drum cue
+  /studio/components/
+    Renderer.tsx              // Canvas compositor (photo now, video later)
+    BandanaPicker.tsx         // 3-style selector
+    BackgroundPicker.tsx      // 3-scene selector
+    CaptureButton.tsx         // Handles photo capture
+    PreviewModal.tsx          // Shows captured result + share/save
+  /api/
+    transcode/route.ts        // Placeholder endpoint (future video)
+  /styles/
+    globals.css
+/public/assets/
+  bandanas/bandana1.png
+  bandanas/bandana2.png
+  bandanas/bandana3.png
+  backgrounds/beach.jpg
+  backgrounds/campfire.jpg
+  backgrounds/tribalcouncil.jpg
+  logo/survivor50.png
+  audio/drum.m4a
+  audio/drum.ogg
+/utils/
+  compositor.ts               // Canvas compositing helpers
+  filters.ts                  // One-Euro filter utilities
+  share.ts                    // Web Share / fallback logic
+
+📸 Output Specs
+Property	Value
+Resolution	1080 × 1920 (px)
+Aspect Ratio	9:16
+Format	PNG (preferred) or JPEG (85–90 %)
+Layers	Background → User → Bandana → Logo
+Est. Size	1–3 MB
+Watermark	Survivor 50 logo bottom-left
+⚙️ Performance & QA Checklist
+
+ Live preview ≥ 24 fps on recent iOS/Android.
+
+ Bandana tracking stable under normal movement.
+
+ Exported image exactly 1080×1920 with logo aligned.
+
+ Audio cue plays only after user gesture.
+
+ Web Share API tested on iOS & Android.
+
+ Graceful fallback if camera access denied.
+
+ HTTPS enforced for camera permission.
+
+🔧 Future Upgrade Path (Video)
+
+Keep the same architecture and:
+
+Add canvas.captureStream(30) + MediaRecorder for 3–5 s clips.
+
+Enable audio track (mic optional) + drum cue sync.
+
+Use /api/transcode Lambda or Cloudinary for WebM→MP4 conversion.
+
+Extend CaptureButton to toggle Photo/Video modes.
+
+Add UI countdown and progress bar for recording.
+
+🧾 Deliverables
+
+Complete Next.js project folder matching the structure above.
+
+Working AR preview with face-tracked bandana overlay.
+
+Functional photo capture/export pipeline.
+
+Audio cue + share/save buttons.
+
+Survivor 50 themed UI.
+
+Documentation:
+
+Setup & dependencies (npm install instructions)
+
+Asset requirements (specs, naming, dimensions)
+
+Upgrade notes for video support.
+
+🧰 Recommended Libraries / Dependencies
+{
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.0",
+    "framer-motion": "^11.0.0",
+    "@mediapipe/face_mesh": "^0.4.0",
+    "@tensorflow/tfjs": "^4.12.0"
+  }
+}
+
+
+Optional for future video:
+
+"@ffmpeg/ffmpeg": "^0.12.6"
