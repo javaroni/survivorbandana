@@ -238,7 +238,7 @@ export default function Studio() {
         
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
+          className="absolute inset-0 w-full h-full object-cover"
           data-testid="canvas-preview"
         />
 
