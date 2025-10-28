@@ -109,9 +109,46 @@ function calculateQuadTransform(
 }
 
 /**
- * Ultra-simple, crash-proof bandana rendering
+ * Calculate head rotation (yaw) from face landmarks
+ * Returns angle in degrees: negative = turned left, positive = turned right
+ */
+function calculateHeadYaw(landmarks: LandmarkPoint[], isMirrored: boolean = false): number {
+  // Use face outline points to detect rotation
+  // Left jaw: 0, Right jaw: 16, Nose tip: 30
+  const leftJaw = landmarks[0];
+  const rightJaw = landmarks[16];
+  const noseTip = landmarks[30];
+  const noseBridge = landmarks[27];
+  
+  if (!leftJaw || !rightJaw || !noseTip || !noseBridge) {
+    return 0;
+  }
+  
+  // Calculate face center from jaw points
+  const faceCenterX = (leftJaw.x + rightJaw.x) / 2;
+  
+  // Nose offset from center indicates rotation
+  // When head turns left, nose moves left of center (negative)
+  // When head turns right, nose moves right of center (positive)
+  const noseOffsetX = noseTip.x - faceCenterX;
+  
+  // Convert to approximate angle (empirically tuned)
+  // Typical nose offset range is about -0.15 to +0.15 in normalized coords
+  let angle = noseOffsetX * 300; // Scale to degrees
+  
+  // Flip angle for mirrored contexts (selfie mode)
+  if (isMirrored) {
+    angle = -angle;
+  }
+  
+  // Clamp to reasonable range
+  return Math.max(-60, Math.min(60, angle));
+}
+
+/**
+ * Realistic bandana rendering with head wrapping
  * Works with face-api.js 68-point landmarks
- * NOTE: Caller is responsible for managing ctx.save()/restore() and transforms
+ * Draws bandana in segments that wrap around the head based on rotation
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -146,8 +183,10 @@ export function drawWrappedBandana(
     // Convert to pixel coordinates
     const leftX = leftEyebrow.x * canvasWidth;
     const rightX = rightEyebrow.x * canvasWidth;
-    const leftInnerX = leftInner.x * canvasWidth;
-    const rightInnerX = rightInner.x * canvasWidth;
+    const leftY = leftEyebrow.y * canvasHeight;
+    const rightY = rightEyebrow.y * canvasHeight;
+    const leftInnerY = leftInner.y * canvasHeight;
+    const rightInnerY = rightInner.y * canvasHeight;
     
     // Calculate forehead position (above eyebrows)
     const eyebrowCenterY = (
@@ -158,15 +197,83 @@ export function drawWrappedBandana(
     
     // Calculate bandana dimensions
     const faceWidth = Math.abs(rightX - leftX);
-    const bandanaWidth = faceWidth * 1.4; // Slightly wider than face
-    const bandanaHeight = bandanaWidth * 0.35; // Aspect ratio for bandana
+    const bandanaWidth = faceWidth * 1.2;
+    const bandanaHeight = bandanaWidth * 0.35;
+    
+    // Calculate head rotation
+    const headYaw = calculateHeadYaw(landmarks, mirroredContext);
     
     // Position bandana above eyebrows
-    const x = foreheadCenterX - bandanaWidth / 2;
-    const y = eyebrowCenterY - bandanaHeight * 0.8; // Position mostly above eyebrows
+    const centerY = eyebrowCenterY - bandanaHeight * 0.7;
     
-    // Draw simple rectangle - no save/restore (caller handles it)
-    ctx.drawImage(bandanaImage, x, y, bandanaWidth, bandanaHeight);
+    // Draw bandana in 3 segments for wrapping effect
+    const segmentWidth = bandanaWidth / 3;
+    
+    // Start from left edge for continuous coverage
+    const bandanaLeftEdge = foreheadCenterX - bandanaWidth / 2;
+    
+    // Slight tilt based on eyebrow angle for all segments
+    const eyebrowTilt = Math.atan2(rightY - leftY, rightX - leftX);
+    
+    // LEFT SEGMENT (rotated based on head angle)
+    ctx.save();
+    const leftSegmentCenterX = bandanaLeftEdge + segmentWidth / 2;
+    
+    ctx.translate(leftSegmentCenterX, centerY + bandanaHeight / 2);
+    ctx.rotate(eyebrowTilt);
+    
+    // Rotate left segment to wrap around left side of head
+    // More rotation when head turns right (left side becomes more visible)
+    const leftRotation = Math.max(0, headYaw * 0.4) - 15;
+    ctx.rotate((leftRotation * Math.PI) / 180);
+    
+    // Scale based on perspective (compress when turned away)
+    const leftScale = 1 - Math.max(0, -headYaw * 0.005);
+    ctx.scale(leftScale, 1);
+    
+    ctx.drawImage(
+      bandanaImage,
+      0, 0, bandanaImage.width / 3, bandanaImage.height,
+      -segmentWidth / 2, -bandanaHeight / 2, segmentWidth, bandanaHeight
+    );
+    ctx.restore();
+    
+    // CENTER SEGMENT (minimal rotation)
+    ctx.save();
+    const centerSegmentX = bandanaLeftEdge + segmentWidth * 1.5;
+    
+    ctx.translate(centerSegmentX, centerY + bandanaHeight / 2);
+    ctx.rotate(eyebrowTilt);
+    
+    ctx.drawImage(
+      bandanaImage,
+      bandanaImage.width / 3, 0, bandanaImage.width / 3, bandanaImage.height,
+      -segmentWidth / 2, -bandanaHeight / 2, segmentWidth, bandanaHeight
+    );
+    ctx.restore();
+    
+    // RIGHT SEGMENT (rotated based on head angle)
+    ctx.save();
+    const rightSegmentCenterX = bandanaLeftEdge + segmentWidth * 2.5;
+    
+    ctx.translate(rightSegmentCenterX, centerY + bandanaHeight / 2);
+    ctx.rotate(eyebrowTilt);
+    
+    // Rotate right segment to wrap around right side of head
+    // More rotation when head turns left (right side becomes more visible)
+    const rightRotation = Math.min(0, headYaw * 0.4) + 15;
+    ctx.rotate((rightRotation * Math.PI) / 180);
+    
+    // Scale based on perspective (compress when turned away)
+    const rightScale = 1 - Math.max(0, headYaw * 0.005);
+    ctx.scale(rightScale, 1);
+    
+    ctx.drawImage(
+      bandanaImage,
+      (bandanaImage.width / 3) * 2, 0, bandanaImage.width / 3, bandanaImage.height,
+      -segmentWidth / 2, -bandanaHeight / 2, segmentWidth, bandanaHeight
+    );
+    ctx.restore();
     
   } catch (error) {
     // Silently fail - don't crash the render loop
@@ -235,11 +342,21 @@ export async function compositeImage(options: CompositeOptions): Promise<Blob> {
   ctx.drawImage(videoFrame, offsetX, offsetY, drawWidth, drawHeight);
 
   // 3. Draw bandana overlay (if face detected and bandana selected)
+  // Note: landmarks come from mirrored tracking feed, but final photo should
+  // be non-mirrored. We need to flip landmarks horizontally to match non-mirrored video.
   if (bandanaImage && landmarks && landmarks.length > 0) {
     try {
+      // Un-mirror the landmarks (flip horizontally)
+      const unmirroredLandmarks = landmarks.map(point => ({
+        x: 1 - point.x, // Flip x coordinate
+        y: point.y       // Keep y coordinate
+      }));
+      
       ctx.save();
       ctx.translate(offsetX, offsetY);
-      drawWrappedBandana(ctx, bandanaImage, landmarks, drawWidth, drawHeight);
+      
+      // Use un-mirrored landmarks with mirroredContext=false for final photo
+      drawWrappedBandana(ctx, bandanaImage, unmirroredLandmarks, drawWidth, drawHeight, false);
       ctx.restore();
     } catch (error) {
       console.error('Error drawing bandana in composite:', error);

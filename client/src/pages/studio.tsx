@@ -163,7 +163,7 @@ export default function Studio() {
             try {
               ctx.scale(-1, 1);
               ctx.translate(-canvas.width, 0);
-              drawWrappedBandana(ctx, bandanaImageRef.current, currentLandmarks, canvas.width, canvas.height);
+              drawWrappedBandana(ctx, bandanaImageRef.current, currentLandmarks, canvas.width, canvas.height, true);
             } finally {
               ctx.restore();
             }
