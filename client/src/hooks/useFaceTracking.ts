@@ -7,6 +7,7 @@ export interface UseFaceTrackingReturn {
   landmarks: LandmarkPoint[] | null;
   isTracking: boolean;
   initialize: (videoElement: HTMLVideoElement) => Promise<void>;
+  processFrame: () => Promise<void>;
   stop: () => void;
   error: string | null;
 }
@@ -18,7 +19,6 @@ export function useFaceTracking(): UseFaceTrackingReturn {
   
   const faceMeshRef = useRef<FaceMesh | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
   const filtersRef = useRef<Map<number, PointFilter>>(new Map());
 
   const processFrame = useCallback(async () => {
@@ -35,8 +35,6 @@ export function useFaceTracking(): UseFaceTrackingReturn {
         console.error('Face tracking error:', err);
       }
     }
-
-    animationFrameRef.current = requestAnimationFrame(processFrame);
   }, []);
 
   const initialize = async (videoElement: HTMLVideoElement) => {
@@ -117,10 +115,6 @@ export function useFaceTracking(): UseFaceTrackingReturn {
       console.log('MediaPipe FaceMesh initialized successfully!');
       
       faceMeshRef.current = faceMesh;
-
-      // Start processing frames
-      console.log('Starting frame processing...');
-      animationFrameRef.current = requestAnimationFrame(processFrame);
     } catch (err) {
       console.error('Failed to initialize face tracking:', err);
       setError('Face tracking unavailable. Please refresh to try again.');
@@ -129,11 +123,6 @@ export function useFaceTracking(): UseFaceTrackingReturn {
   };
 
   const stop = useCallback(() => {
-    if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
     if (faceMeshRef.current) {
       faceMeshRef.current.close();
       faceMeshRef.current = null;
@@ -154,6 +143,7 @@ export function useFaceTracking(): UseFaceTrackingReturn {
     landmarks,
     isTracking,
     initialize,
+    processFrame,
     stop,
     error,
   };

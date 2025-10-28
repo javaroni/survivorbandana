@@ -40,7 +40,7 @@ export default function Studio() {
   const bandanaImageRef = useRef<HTMLImageElement | null>(null);
 
   const { videoRef, permissionState, error: cameraError, startCamera, isReady } = useCamera();
-  const { landmarks, isTracking, initialize: initTracking, error: trackingError } = useFaceTracking();
+  const { landmarks, isTracking, initialize: initTracking, processFrame, error: trackingError } = useFaceTracking();
   const { play: playAudioCue, initializeAudio } = useAudioCue();
 
   // Initialize camera and face tracking on mount
@@ -77,7 +77,7 @@ export default function Studio() {
     }
   }, [selectedBandana]);
 
-  // Render live preview with bandana overlay
+  // Consolidated render loop - processes face tracking AND renders canvas in one loop
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current || !isReady) return;
 
@@ -88,9 +88,12 @@ export default function Studio() {
 
     let animationId: number;
 
-    const render = () => {
+    const render = async () => {
       try {
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          // Process face tracking frame (sends to MediaPipe)
+          await processFrame();
+
           // Set canvas size to match video
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
@@ -112,7 +115,7 @@ export default function Studio() {
           }
         }
       } catch (error) {
-        console.error('Render error:', error);
+        console.error('Render loop error:', error);
       }
 
       animationId = requestAnimationFrame(render);
@@ -125,7 +128,7 @@ export default function Studio() {
         cancelAnimationFrame(animationId);
       }
     };
-  }, [isReady, landmarks]);
+  }, [isReady, processFrame]);
 
   const handleCapture = async () => {
     if (!videoRef.current || !selectedBackground || isCapturing) {
