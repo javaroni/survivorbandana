@@ -146,9 +146,9 @@ function calculateHeadYaw(landmarks: LandmarkPoint[], isMirrored: boolean = fals
 }
 
 /**
- * Realistic bandana rendering with head wrapping
+ * Realistic curved bandana rendering with cylindrical wrapping
  * Works with face-api.js 68-point landmarks
- * Draws bandana in segments that wrap around the head based on rotation
+ * Draws bandana as a curved surface wrapping around the head
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -185,8 +185,6 @@ export function drawWrappedBandana(
     const rightX = rightEyebrow.x * canvasWidth;
     const leftY = leftEyebrow.y * canvasHeight;
     const rightY = rightEyebrow.y * canvasHeight;
-    const leftInnerY = leftInner.y * canvasHeight;
-    const rightInnerY = rightInner.y * canvasHeight;
     
     // Calculate forehead position (above eyebrows)
     const eyebrowCenterY = (
@@ -206,73 +204,106 @@ export function drawWrappedBandana(
     // Position bandana above eyebrows
     const centerY = eyebrowCenterY - bandanaHeight * 0.7;
     
-    // Draw bandana in 3 segments for wrapping effect
-    const segmentWidth = bandanaWidth / 3;
-    
-    // Start from left edge for continuous coverage
-    const bandanaLeftEdge = foreheadCenterX - bandanaWidth / 2;
-    
-    // Slight tilt based on eyebrow angle for all segments
+    // Slight tilt based on eyebrow angle
     const eyebrowTilt = Math.atan2(rightY - leftY, rightX - leftX);
     
-    // LEFT SEGMENT (rotated based on head angle)
-    ctx.save();
-    const leftSegmentCenterX = bandanaLeftEdge + segmentWidth / 2;
+    // Draw bandana using curved perspective transformation
+    // Use many thin slices with generous overlap for continuous coverage
+    const numSlices = 80; // Many slices for smooth curve
     
-    ctx.translate(leftSegmentCenterX, centerY + bandanaHeight / 2);
+    ctx.save();
+    ctx.translate(foreheadCenterX, centerY + bandanaHeight / 2);
     ctx.rotate(eyebrowTilt);
     
-    // Rotate left segment to wrap around left side of head
-    // More rotation when head turns right (left side becomes more visible)
-    const leftRotation = Math.max(0, headYaw * 0.4) - 15;
-    ctx.rotate((leftRotation * Math.PI) / 180);
+    // Calculate all slice positions and widths
+    const sliceData: Array<{
+      x: number;
+      z: number;
+      scale: number;
+      brightness: number;
+      sourceX: number;
+      index: number;
+    }> = [];
     
-    // Scale based on perspective (compress when turned away)
-    const leftScale = 1 - Math.max(0, -headYaw * 0.005);
-    ctx.scale(leftScale, 1);
+    const curveAmount = 0.5; // Controls how much the bandana curves
     
-    ctx.drawImage(
-      bandanaImage,
-      0, 0, bandanaImage.width / 3, bandanaImage.height,
-      -segmentWidth / 2, -bandanaHeight / 2, segmentWidth, bandanaHeight
-    );
-    ctx.restore();
+    for (let i = 0; i < numSlices; i++) {
+      // Position from -1 (left) to +1 (right)
+      const normalizedPos = (i / (numSlices - 1)) * 2 - 1;
+      
+      // Calculate curve based on cylindrical projection
+      const angle = normalizedPos * Math.PI * curveAmount;
+      
+      // Apply head rotation to curve
+      const effectiveAngle = angle + (headYaw * Math.PI / 180) * 0.3;
+      
+      // Calculate 3D position on cylinder surface
+      const z = Math.cos(effectiveAngle);
+      const x = Math.sin(effectiveAngle) * bandanaWidth / 2;
+      
+      // Perspective scaling (things farther back appear smaller)
+      const perspective = 1.5; // Camera distance
+      const scale = perspective / (perspective + (1 - z) * 0.5);
+      
+      // Brightness based on surface normal (facing camera = brighter)
+      const brightness = 0.7 + z * 0.3;
+      
+      // Source x position in bandana image
+      const sourceX = (i / numSlices) * bandanaImage.width;
+      
+      // Skip slices that are on the back of the head
+      if (z >= -0.3) {
+        sliceData.push({ x, z, scale, brightness, sourceX, index: i });
+      }
+    }
     
-    // CENTER SEGMENT (minimal rotation)
-    ctx.save();
-    const centerSegmentX = bandanaLeftEdge + segmentWidth * 1.5;
+    // Draw slices from back to front for proper layering
+    sliceData.sort((a, b) => a.z - b.z);
     
-    ctx.translate(centerSegmentX, centerY + bandanaHeight / 2);
-    ctx.rotate(eyebrowTilt);
+    // Draw each slice with width calculated from spacing to neighbors
+    for (let i = 0; i < sliceData.length; i++) {
+      const slice = sliceData[i];
+      
+      // Calculate width to reach neighbor slices (generous overlap)
+      let sliceWidth = bandanaWidth / numSlices * 2.0; // 2x base width for overlap
+      
+      // For middle slices, calculate actual spacing to neighbors
+      if (i > 0 && i < sliceData.length - 1) {
+        const prevX = sliceData[i - 1].x;
+        const nextX = sliceData[i + 1].x;
+        const avgSpacing = Math.abs(nextX - prevX) / 2;
+        // Use 1.5x spacing to ensure overlap
+        sliceWidth = Math.max(sliceWidth, avgSpacing * 1.5);
+      }
+      
+      ctx.save();
+      
+      // Position this slice
+      ctx.translate(slice.x, 0);
+      
+      // Apply perspective scaling
+      ctx.scale(slice.scale, 1);
+      
+      // Apply brightness (darker when turned away)
+      ctx.globalAlpha = slice.brightness;
+      
+      // Calculate source width (proportional to destination)
+      const baseSourceWidth = bandanaImage.width / numSlices;
+      const sourceWidth = Math.min(
+        baseSourceWidth * 2.5, 
+        bandanaImage.width - slice.sourceX
+      );
+      
+      // Draw this vertical slice of the bandana
+      ctx.drawImage(
+        bandanaImage,
+        slice.sourceX, 0, sourceWidth, bandanaImage.height,
+        -sliceWidth / 2, -bandanaHeight / 2, sliceWidth, bandanaHeight
+      );
+      
+      ctx.restore();
+    }
     
-    ctx.drawImage(
-      bandanaImage,
-      bandanaImage.width / 3, 0, bandanaImage.width / 3, bandanaImage.height,
-      -segmentWidth / 2, -bandanaHeight / 2, segmentWidth, bandanaHeight
-    );
-    ctx.restore();
-    
-    // RIGHT SEGMENT (rotated based on head angle)
-    ctx.save();
-    const rightSegmentCenterX = bandanaLeftEdge + segmentWidth * 2.5;
-    
-    ctx.translate(rightSegmentCenterX, centerY + bandanaHeight / 2);
-    ctx.rotate(eyebrowTilt);
-    
-    // Rotate right segment to wrap around right side of head
-    // More rotation when head turns left (right side becomes more visible)
-    const rightRotation = Math.min(0, headYaw * 0.4) + 15;
-    ctx.rotate((rightRotation * Math.PI) / 180);
-    
-    // Scale based on perspective (compress when turned away)
-    const rightScale = 1 - Math.max(0, headYaw * 0.005);
-    ctx.scale(rightScale, 1);
-    
-    ctx.drawImage(
-      bandanaImage,
-      (bandanaImage.width / 3) * 2, 0, bandanaImage.width / 3, bandanaImage.height,
-      -segmentWidth / 2, -bandanaHeight / 2, segmentWidth, bandanaHeight
-    );
     ctx.restore();
     
   } catch (error) {
