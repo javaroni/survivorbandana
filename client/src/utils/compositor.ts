@@ -291,6 +291,7 @@ function calculateQuadTransform(
 /**
  * Ultra-simple, crash-proof bandana rendering
  * Just tracks forehead position - no rotation or complex math
+ * NOTE: Caller is responsible for managing ctx.save()/restore() and transforms
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -334,14 +335,12 @@ export function drawWrappedBandana(
     const x = foreheadX - bandanaWidth / 2;
     const y = foreheadY - bandanaHeight / 2;
     
-    // Draw simple rectangle - no rotation, no transforms
-    ctx.save();
-    ctx.globalAlpha = 0.9;
+    // Draw simple rectangle - no save/restore (caller handles it)
     ctx.drawImage(bandanaImage, x, y, bandanaWidth, bandanaHeight);
-    ctx.restore();
     
   } catch (error) {
     // Silently fail - don't crash the render loop
+    console.warn('Bandana render error:', error);
     return;
   }
 }

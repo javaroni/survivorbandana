@@ -112,19 +112,25 @@ export default function Studio() {
 
           // Mirror the video horizontally for selfie mode
           ctx.save();
-          ctx.scale(-1, 1);
-          ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-          ctx.restore();
+          try {
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+          } finally {
+            ctx.restore();
+          }
 
           // Draw bandana overlay if face detected (use ref to avoid effect thrashing)
           const currentLandmarks = landmarksRef.current;
           if (currentLandmarks && currentLandmarks.length > 0 && bandanaImageRef.current) {
             // Apply same mirroring as video for consistency
             ctx.save();
-            ctx.scale(-1, 1);
-            ctx.translate(-canvas.width, 0);
-            drawWrappedBandana(ctx, bandanaImageRef.current, currentLandmarks, canvas.width, canvas.height);
-            ctx.restore();
+            try {
+              ctx.scale(-1, 1);
+              ctx.translate(-canvas.width, 0);
+              drawWrappedBandana(ctx, bandanaImageRef.current, currentLandmarks, canvas.width, canvas.height);
+            } finally {
+              ctx.restore();
+            }
           }
         }
       } catch (error) {
