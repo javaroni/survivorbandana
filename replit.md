@@ -1,157 +1,219 @@
 # Survivor 50 AR Selfie Studio
 
-## Overview
+## Project Overview
+A mobile-first, responsive web application that allows Survivor fans to create branded AR selfies by wearing virtual bandanas, selecting island backgrounds, and capturing 1080×1920 photos with face tracking.
 
-A mobile-first web application that lets Survivor fans create personalized AR selfies by placing themselves into iconic Survivor scenes with virtual bandanas. Users can access their device camera, apply real-time face tracking to wear Survivor-style bandanas, select tropical island backgrounds, and capture high-resolution (1080×1920) images with the Survivor 50 logo overlay. The application is architected to support future video capture capabilities without requiring significant refactoring.
+**Live URL**: Access via Replit's web preview on port 5000
 
-## User Preferences
+## Technical Stack
+- **Frontend**: React 18 + Vite
+- **Routing**: Wouter
+- **Styling**: Tailwind CSS with custom Survivor theme
+- **Face Tracking**: MediaPipe Face Mesh (468 landmarks) with One-Euro filter smoothing
+- **AR Rendering**: HTML5 Canvas with real-time overlay compositing
+- **Audio**: Web Audio API (synthesized tribal drum cue)
+- **Sharing**: Web Share API with download fallback
+- **Fonts**: Oswald (display/headings), Inter (body text)
 
-Preferred communication style: Simple, everyday language.
+## Key Features Implemented
 
-## System Architecture
+### 1. Landing Page (`/`)
+- Survivor 50 logo with animated entrance
+- "Step Into the Game" tagline
+- Parchment texture background with torch flicker effects
+- Start button to access AR Studio
 
-### Frontend Architecture
+### 2. AR Studio (`/studio`)
+- **Live Camera Preview**: Front-facing camera with face detection
+- **Real-time Face Tracking**: MediaPipe Face Mesh with smooth landmark tracking
+- **Bandana Overlay**: 3 styles (Red Tribal, Flame Orange, Ocean Teal) that track head movement
+- **Background Selection**: 3 scenes (Island Beach, Campfire, Tribal Council)
+- **Photo Capture**: 
+  - Compositing layers: Background → Video frame → Bandana → Logo watermark
+  - Output: 1080×1920 PNG
+  - Survivor 50 logo positioned bottom-left with 48px inset
+- **Audio Cue**: Tribal drum sound on capture
+- **Preview Modal**: 
+  - Full-screen image preview
+  - Download to device
+  - Web Share API integration
+  - "Learn More" CTA link
 
-**Framework**: React 18 with TypeScript, using Wouter for lightweight client-side routing
+### 3. Error Handling
+- Camera permission denial with retry
+- No camera detected with helpful message
+- Face detection guidance ("Position your face in frame")
+- Share fallback when Web Share API unavailable
 
-**UI System**: Radix UI primitives with shadcn/ui components, styled using Tailwind CSS with a custom Survivor-themed design system featuring:
-- Torch Orange (#E85D04) for primary actions
-- Island Teal (#0A9396) for secondary elements  
-- Warm parchment and wood-grain aesthetic throughout
-- Oswald font for bold headings, Inter for body text
+## Design System
 
-**State Management**: TanStack Query (React Query) for server state, React hooks for local component state
+### Color Palette
+- **Primary (Torch Orange)**: `hsl(22 95% 48%)` - #E85D04
+- **Secondary (Island Teal)**: `hsl(181 89% 31%)` - #0A9396
+- **Accent (Warm Yellow)**: `hsl(43 100% 51%)` - #FFBA08
+- **Background (Parchment)**: `hsl(38 56% 90%)` - #F4E9D7
+- **Dark (Wood Brown)**: `hsl(21 43% 21%)` - #4A2C1F
 
-**Responsive Design**: Mobile-first approach with full viewport camera preview, optimized for 9:16 portrait orientation
+### Typography
+- **Display Font**: Oswald (rugged, bold headings)
+- **Body Font**: Inter (clean, readable)
 
-### AR & Media Processing
+### Custom Animations
+- `animate-torch-flicker` - Subtle opacity pulse (3s)
+- `animate-pulse-glow` - Orange glow effect (2s)
+- `animate-ripple` - Expanding ring on capture (0.6s)
+- `animate-fade-in-scale` - Entrance animation (0.8s)
+- `animate-slide-up` - Bottom sheet slide (0.3s)
 
-**Face Tracking**: MediaPipe FaceMesh for real-time facial landmark detection (468 points)
-- Tracks head position and rotation for accurate bandana placement
-- One-Euro Filter implementation for smooth landmark tracking and reduced jitter
+## Project Structure
 
-**Camera Access**: Web APIs (getUserMedia) with graceful permission handling
-- Front-facing camera with 1280×720 preferred resolution
-- Video element serves as real-time preview
+```
+client/
+├── src/
+│   ├── components/
+│   │   ├── BandanaPicker.tsx      # 3-style bandana selector
+│   │   ├── BackgroundPicker.tsx   # 3-scene background selector
+│   │   ├── CaptureButton.tsx      # Circular capture button with pulse
+│   │   └── PreviewModal.tsx       # Full-screen preview with share/download
+│   ├── hooks/
+│   │   ├── useCamera.ts           # Camera access & stream management
+│   │   ├── useFaceTracking.ts     # MediaPipe integration & filtering
+│   │   └── useAudioCue.ts         # Web Audio API drum sound
+│   ├── pages/
+│   │   ├── landing.tsx            # Home page with CTA
+│   │   └── studio.tsx             # Main AR experience
+│   ├── utils/
+│   │   ├── compositor.ts          # Canvas layering & export (1080×1920)
+│   │   ├── filters.ts             # One-Euro filter for landmark smoothing
+│   │   └── share.ts               # Web Share API with fallbacks
+│   └── index.css                  # Survivor color system & animations
+├── index.html                      # Oswald & Inter fonts, SEO meta tags
+└── tailwind.config.ts              # Extended with display font family
 
-**Image Compositing**: Canvas-based layering system for final capture:
-1. Background scene layer (full frame)
-2. Live camera feed (user's face)
-3. Bandana overlay (warped to match face angle using landmark positioning)
-4. Survivor 50 logo (bottom-left corner)
+server/
+├── routes/
+│   └── transcode.ts                # Placeholder endpoint (501) for future video
+└── routes.ts                       # Express route registration
 
-**Export**: Client-side PNG/JPEG generation at 1080×1920 resolution with 85-90% quality
+shared/
+└── schema.ts                       # TypeScript types (Bandana, BackgroundScene, etc.)
 
-**Audio**: Web Audio API with synthesized tribal drum sound cue on capture (no external audio files required for MVP)
+attached_assets/
+└── generated_images/               # All generated assets (bandanas, backgrounds, logo)
+```
 
-### Component Structure
+## Generated Assets
+All visual assets were AI-generated for this project:
 
-**Pages**:
-- `Landing`: Entry point with logo, tagline, and camera permission request
-- `Studio`: Main AR experience with live preview, asset pickers, and capture functionality
-- `NotFound`: 404 handler
+**Bandanas** (3):
+- Red_tribal_bandana_headband_429c26b4.png
+- Orange_flame_bandana_headband_5333090e.png
+- Teal_ocean_bandana_headband_5495ec20.png
 
-**Core Components**:
-- `BandanaPicker`: Grid selector for 3 bandana styles (Red Tribal, Flame Orange, Ocean Teal)
-- `BackgroundPicker`: Grid selector for 3 scenes (Island Beach, Campfire, Tribal Council)
-- `CaptureButton`: Animated shutter button with ripple effect and tribal drum cue
-- `PreviewModal`: Post-capture preview with download and Web Share API integration
+**Backgrounds** (3):
+- Tropical_island_beach_paradise_76942181.png (Beach)
+- Tribal_campfire_with_torches_0e4d6140.png (Campfire)
+- Tribal_council_night_scene_d967f43c.png (Tribal Council)
 
-**Custom Hooks**:
-- `useCamera`: Manages camera stream lifecycle and permission states
-- `useFaceTracking`: Initializes MediaPipe and processes facial landmarks
-- `useAudioCue`: Handles Web Audio context and playback
-- `useToast`: Manages notification system
+**Logo**:
+- Survivor_50_official_logo_3a48e0ed.png
 
-### Data Layer
+## Testing
 
-**Schema Definitions** (`shared/schema.ts`):
-- `Bandana`: Asset metadata (id, name, imagePath)
-- `BackgroundScene`: Scene metadata (id, name, imagePath)
-- `FaceMeshResults`: MediaPipe output structure
-- `CaptureSettings`: Current user selections and resolution
-- `CameraPermissionState`: Permission flow tracking
+### Manual Testing Required
+Due to the AR nature of this app, manual testing on a real device with camera is required to verify:
+- MediaPipe face detection works with actual camera feed
+- Bandana overlay correctly tracks head movement
+- Photo capture creates proper 1080×1920 composited images
+- Share functionality works on mobile devices
 
-**Storage**: In-memory storage implementation for user data (currently minimal usage)
-- Placeholder `MemStorage` class with CRUD methods for future user profile features
+### Automated Testing Results
+- Navigation flow verified ✓
+- UI components render correctly ✓
+- Error handling works as expected ✓
+- Camera permission flow functions properly ✓
 
-### Build System
+**Note**: Playwright cannot test AR features without a physical camera device.
 
-**Development**: Vite dev server with HMR, React Fast Refresh, and Replit-specific plugins
-- Custom error overlay
-- Cartographer for code navigation
-- Dev banner for environment awareness
+## Performance Considerations
 
-**Production**: 
-- Client bundle output to `dist/public`
-- Server bundle via esbuild (ESM format, Node platform)
-- TypeScript compilation without emit (type checking only)
+### Target Performance
+- **Live Preview**: 24-30 fps on recent iOS/Android devices
+- **Face Tracking**: One-Euro filter smooths landmarks for stable overlay
+- **Capture**: < 2 seconds from button press to preview modal
 
-**Asset Handling**: Static assets served from `attached_assets/generated_images/` with Vite alias `@assets`
+### Optimizations Implemented
+1. **One-Euro Filter**: Reduces jitter in face landmark tracking
+2. **Canvas Rendering**: Efficient layer compositing
+3. **Lazy Loading**: MediaPipe loads on-demand from CDN
+4. **Audio Synthesis**: Generated drum sound (no external audio files needed)
+5. **Image Preloading**: Selected bandana image preloaded before capture
 
-### API & Routing
+## Future Enhancements (Not in MVP)
 
-**Backend Framework**: Express.js with TypeScript
+### Video Capture Mode
+- Canvas stream capture (3-5 second clips)
+- MediaRecorder for WebM recording
+- `/api/transcode` endpoint for WebM→MP4 conversion
+- Recording countdown and progress bar UI
+- Toggle between Photo/Video modes
 
-**Middleware**:
-- JSON body parsing with raw buffer preservation
-- URL-encoded form data support
-- Request/response logging for API endpoints
+### Analytics Integration
+- Google Analytics 4 event tracking
+- Meta Pixel for capture/share metrics
+- User engagement analytics
 
-**Routes**:
-- `/api/transcode`: Placeholder endpoint returning 501 for future video processing (reserved for WebM to MP4 transcoding)
+### Additional Features
+- More bandana styles and backgrounds
+- Face filters and effects
+- Social media direct posting
+- User gallery of saved selfies
 
-**Static Serving**: Vite middleware in development, compiled assets in production
+## Known Limitations
 
-## External Dependencies
+1. **MediaPipe Loading**: First load requires ~5-10 seconds to download face mesh model from CDN
+2. **Browser Support**: Requires modern browser with `getUserMedia` support
+3. **HTTPS Required**: Camera access only works over HTTPS
+4. **Mobile Performance**: May vary on older devices due to MediaPipe processing
 
-### Core Libraries
+## Development Notes
 
-**UI & Styling**:
-- Radix UI (v1.x) for accessible component primitives
-- Tailwind CSS 3.x with custom theme configuration
-- class-variance-authority for component variants
-- Lucide React for iconography
+### Running Locally
+```bash
+npm install
+npm run dev
+```
+Application runs on `http://localhost:5000`
 
-**AR & Computer Vision**:
-- `@mediapipe/face_mesh` (v0.4.1633559619) for facial landmark detection
-- `@tensorflow/tfjs-core` and `@tensorflow/tfjs-backend-webgl` (v4.22.0) as MediaPipe dependencies
+### Environment Requirements
+- Node.js 20+
+- Modern browser with camera support
+- HTTPS for production deployment
 
-**State & Data**:
-- `@tanstack/react-query` (v5.60.5) for asynchronous state management
-- `wouter` for lightweight routing
+### Key Dependencies
+- `@mediapipe/face_mesh`: Face landmark detection
+- `@tensorflow/tfjs-core` + `@tensorflow/tfjs-backend-webgl`: TensorFlow backend
+- `framer-motion`: Animation library
+- `wouter`: Lightweight routing
+- Tailwind CSS + shadcn/ui: Styling system
 
-**Database** (Configured but minimal usage):
-- `@neondatabase/serverless` (v0.10.4) for PostgreSQL connectivity
-- Drizzle ORM with schema defined in `shared/schema.ts`
-- Connection configured via `DATABASE_URL` environment variable
+## Deployment Checklist
+- ✓ All assets generated and imported
+- ✓ Design system configured with Survivor theme
+- ✓ Camera and face tracking implemented
+- ✓ Photo capture pipeline complete
+- ✓ Error handling comprehensive
+- ✓ Mobile-first responsive design
+- ✓ SEO meta tags added
+- ✓ Loading states polished
+- ✓ Share functionality with fallbacks
 
-**Development Tools**:
-- Vite (v6.x) with React plugin
-- TypeScript (v5.x) with strict mode
-- esbuild for server bundling
-- `@replit/vite-plugin-*` for Replit IDE integration
+## Support
+For issues or questions about this implementation, refer to:
+- `design_guidelines.md` - Detailed design specifications
+- MediaPipe Face Mesh docs: https://google.github.io/mediapipe/solutions/face_mesh
+- Web Share API: https://developer.mozilla.org/en-US/docs/Web/API/Web_Share_API
 
-### Third-Party Services
-
-**Content Delivery**:
-- MediaPipe models loaded from `cdn.jsdelivr.net/npm/@mediapipe/face_mesh/`
-- Google Fonts (Oswald, Inter) loaded from fonts.googleapis.com
-
-**Browser APIs**:
-- MediaDevices API (getUserMedia) for camera access
-- Web Audio API for sound playback
-- Canvas API for image compositing
-- Web Share API for native sharing (with download fallback)
-
-### Asset Pipeline
-
-**Image Assets**: Pre-generated Survivor-themed graphics stored in `attached_assets/generated_images/`:
-- 3 bandana overlays (PNG with transparency)
-- 3 background scenes (JPG/PNG)
-- Survivor 50 official logo
-- All assets loaded via Vite's static import system
-
-**Future Considerations**: 
-- Video transcoding placeholder suggests FFmpeg or cloud service integration planned
-- Schema includes audio context state management for expanded audio features
+---
+**Project Status**: ✅ Complete and Ready for Manual Testing
+**Last Updated**: October 28, 2025

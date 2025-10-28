@@ -57,12 +57,12 @@ export function useFaceTracking(): UseFaceTrackingReturn {
         minTrackingConfidence: 0.5,
       });
 
-      faceMesh.onResults((results: FaceMeshResults) => {
+      faceMesh.onResults((results: any) => {
         if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
           const rawLandmarks = results.multiFaceLandmarks[0];
           
           // Apply One-Euro filter to smooth landmarks
-          const smoothedLandmarks = rawLandmarks.map((point, index) => {
+          const smoothedLandmarks = rawLandmarks.map((point: any, index: number) => {
             if (!filtersRef.current.has(index)) {
               filtersRef.current.set(index, new PointFilter({
                 minCutoff: 1.0,
