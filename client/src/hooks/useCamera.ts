@@ -26,11 +26,41 @@ export function useCamera(): UseCameraReturn {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1280, max: 1280, min: 640 },
+          height: { ideal: 720, max: 720, min: 360 },
         },
         audio: false,
       });
+
+      // Apply constraints to the video track to ensure resolution is clamped
+      const videoTrack = mediaStream.getVideoTracks()[0];
+      if (videoTrack) {
+        try {
+          // First attempt: ideal/max/min constraints
+          await videoTrack.applyConstraints({
+            width: { ideal: 1280, max: 1280, min: 640 },
+            height: { ideal: 720, max: 720, min: 360 },
+          });
+          
+          // Verify constraints were applied
+          const settings = videoTrack.getSettings();
+          console.log(`📹 Applied constraints, got: ${settings.width}x${settings.height}`);
+          
+          // If still above 720p, force exact values
+          if (settings.width && settings.height && (settings.width > 1280 || settings.height > 720)) {
+            console.warn(`⚠️ Resolution ${settings.width}x${settings.height} exceeds 720p, forcing exact values...`);
+            await videoTrack.applyConstraints({
+              advanced: [{ width: 1280, height: 720 }]
+            });
+            const finalSettings = videoTrack.getSettings();
+            console.log(`📹 Forced exact resolution: ${finalSettings.width}x${finalSettings.height}`);
+          } else {
+            console.log('✅ Resolution constraints successfully applied');
+          }
+        } catch (err) {
+          console.warn('⚠️ Failed to apply constraints:', err);
+        }
+      }
 
       setStream(mediaStream);
       setPermissionState('granted');
@@ -62,6 +92,17 @@ export function useCamera(): UseCameraReturn {
         if (videoRef.current) {
           videoRef.current.onloadedmetadata = () => {
             clearTimeout(timeout);
+            const actualWidth = videoRef.current?.videoWidth || 0;
+            const actualHeight = videoRef.current?.videoHeight || 0;
+            console.log(`📹 Camera Resolution: ${actualWidth}x${actualHeight}`);
+            
+            // Log actual track settings
+            const track = mediaStream.getVideoTracks()[0];
+            if (track) {
+              const settings = track.getSettings();
+              console.log(`📹 Track Settings: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
+            }
+            
             console.log('Video metadata loaded');
             videoRef.current?.play().then(() => {
               console.log('Video playing, setting isReady to true');

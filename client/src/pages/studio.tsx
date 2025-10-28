@@ -62,6 +62,42 @@ export default function Studio() {
     init();
   }, []);
 
+  // WebGL context monitoring and memory tracking
+  useEffect(() => {
+    if (!canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+
+    // Monitor WebGL context lost events
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      console.error('🚨 WebGL context lost! GPU watchdog killed the context.');
+    };
+
+    const handleContextRestored = () => {
+      console.log('✅ WebGL context restored');
+    };
+
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored);
+
+    // Memory monitoring (every 2 seconds)
+    const memoryInterval = setInterval(() => {
+      if ((performance as any).memory) {
+        const mem = (performance as any).memory;
+        const usedMB = (mem.usedJSHeapSize / 1024 / 1024).toFixed(1);
+        const limitMB = (mem.jsHeapSizeLimit / 1024 / 1024).toFixed(1);
+        console.log(`💾 Memory: ${usedMB}MB / ${limitMB}MB`);
+      }
+    }, 2000);
+
+    return () => {
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+      clearInterval(memoryInterval);
+    };
+  }, []);
+
   // Start face tracking when camera is ready
   useEffect(() => {
     console.log('isReady changed:', isReady, 'videoRef.current:', !!videoRef.current);
