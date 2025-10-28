@@ -64,27 +64,51 @@ export function useFaceTracking(): UseFaceTrackingReturn {
 
       console.log('Setting up onResults callback...');
       faceMesh.onResults((results: any) => {
-        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        try {
+          if (!results || !results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+            setLandmarks(null);
+            setIsTracking(false);
+            return;
+          }
+          
           const rawLandmarks = results.multiFaceLandmarks[0];
           
-          // Apply One-Euro filter to smooth landmarks
+          if (!rawLandmarks || !Array.isArray(rawLandmarks) || rawLandmarks.length === 0) {
+            setLandmarks(null);
+            setIsTracking(false);
+            return;
+          }
+          
+          // Apply One-Euro filter to smooth landmarks - with error handling
           const smoothedLandmarks = rawLandmarks.map((point: any, index: number) => {
-            if (!filtersRef.current.has(index)) {
-              filtersRef.current.set(index, new PointFilter({
-                minCutoff: 1.0,
-                beta: 0.007,
-                dcutoff: 1.0,
-              }));
+            try {
+              if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+                return { x: 0, y: 0 };
+              }
+              
+              if (!filtersRef.current.has(index)) {
+                filtersRef.current.set(index, new PointFilter({
+                  minCutoff: 1.0,
+                  beta: 0.007,
+                  dcutoff: 1.0,
+                }));
+              }
+              
+              const filter = filtersRef.current.get(index)!;
+              return filter.filter({ x: point.x, y: point.y });
+            } catch (filterError) {
+              // If filtering fails, return raw point
+              return { x: point.x || 0, y: point.y || 0 };
             }
-            
-            const filter = filtersRef.current.get(index)!;
-            return filter.filter({ x: point.x, y: point.y });
           });
 
           setLandmarks(smoothedLandmarks);
           setIsTracking(true);
-        } else {
+        } catch (error) {
+          // Silently handle errors in onResults to prevent crashes
+          console.warn('Error in face tracking onResults:', error);
           setLandmarks(null);
+          setIsTracking(false);
         }
       });
 

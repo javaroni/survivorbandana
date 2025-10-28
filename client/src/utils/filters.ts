@@ -13,6 +13,10 @@ class LowPassFilter {
   private y: number | null = null;
   private s: number | null = null;
 
+  get lastValue(): number | null {
+    return this.y;
+  }
+
   filter(value: number, alpha: number): number {
     if (this.y === null) {
       this.s = value;
@@ -47,18 +51,31 @@ export class OneEuroFilter {
   }
 
   filter(value: number, timestamp?: number): number {
+    // Validate input
+    if (!isFinite(value)) {
+      return 0;
+    }
+    
     const now = timestamp ?? performance.now();
-    const dt = this.lastTime !== null ? (now - this.lastTime) / 1000 : 0.016;
+    const dt = this.lastTime !== null ? Math.max(0.001, (now - this.lastTime) / 1000) : 0.016;
     this.lastTime = now;
 
+    // First call - no history yet
+    if (this.xFilter.lastValue === null) {
+      return this.xFilter.filter(value, 1.0);
+    }
+
     const dx = this.lastTime !== null 
-      ? (value - this.xFilter.filter(value, this.alpha(this.config.dcutoff, dt))) / dt
+      ? (value - (this.xFilter.lastValue ?? value)) / dt
       : 0;
 
     const edx = this.dxFilter.filter(dx, this.alpha(this.config.dcutoff, dt));
     const cutoff = this.config.minCutoff + this.config.beta * Math.abs(edx);
 
-    return this.xFilter.filter(value, this.alpha(cutoff, dt));
+    const result = this.xFilter.filter(value, this.alpha(cutoff, dt));
+    
+    // Ensure valid output
+    return isFinite(result) ? result : value;
   }
 
   reset(): void {
