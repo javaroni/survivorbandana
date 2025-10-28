@@ -38,10 +38,16 @@ export default function Studio() {
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bandanaImageRef = useRef<HTMLImageElement | null>(null);
+  const landmarksRef = useRef<any>(null); // Ref to avoid render loop thrashing
 
   const { videoRef, permissionState, error: cameraError, startCamera, isReady } = useCamera();
-  const { landmarks, isTracking, initialize: initTracking, processFrame, error: trackingError } = useFaceTracking();
+  const { landmarks, isTracking, initialize: initTracking, error: trackingError } = useFaceTracking();
   const { play: playAudioCue, initializeAudio } = useAudioCue();
+
+  // Keep landmarks ref updated without triggering effects
+  useEffect(() => {
+    landmarksRef.current = landmarks;
+  }, [landmarks]);
 
   // Initialize camera and face tracking on mount
   useEffect(() => {
@@ -77,7 +83,7 @@ export default function Studio() {
     }
   }, [selectedBandana]);
 
-  // Consolidated render loop - processes face tracking AND renders canvas in one loop
+  // Canvas render loop - stable, doesn't depend on landmarks state
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current || !isReady) return;
 
@@ -88,12 +94,9 @@ export default function Studio() {
 
     let animationId: number;
 
-    const render = async () => {
+    const render = () => {
       try {
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
-          // Process face tracking frame (sends to MediaPipe)
-          await processFrame();
-
           // Set canvas size to match video
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
@@ -104,13 +107,14 @@ export default function Studio() {
           ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
           ctx.restore();
 
-          // Draw bandana overlay if face detected
-          if (landmarks && landmarks.length > 0 && bandanaImageRef.current) {
+          // Draw bandana overlay if face detected (use ref to avoid effect thrashing)
+          const currentLandmarks = landmarksRef.current;
+          if (currentLandmarks && currentLandmarks.length > 0 && bandanaImageRef.current) {
             // Apply same mirroring as video for consistency
             ctx.save();
             ctx.scale(-1, 1);
             ctx.translate(-canvas.width, 0);
-            drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height);
+            drawWrappedBandana(ctx, bandanaImageRef.current, currentLandmarks, canvas.width, canvas.height);
             ctx.restore();
           }
         }
@@ -128,7 +132,7 @@ export default function Studio() {
         cancelAnimationFrame(animationId);
       }
     };
-  }, [isReady, processFrame]);
+  }, [isReady]);
 
   const handleCapture = async () => {
     if (!videoRef.current || !selectedBackground || isCapturing) {

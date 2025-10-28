@@ -7,7 +7,6 @@ export interface UseFaceTrackingReturn {
   landmarks: LandmarkPoint[] | null;
   isTracking: boolean;
   initialize: (videoElement: HTMLVideoElement) => Promise<void>;
-  processFrame: () => Promise<void>;
   stop: () => void;
   error: string | null;
 }
@@ -19,22 +18,47 @@ export function useFaceTracking(): UseFaceTrackingReturn {
   
   const faceMeshRef = useRef<FaceMesh | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const filtersRef = useRef<Map<number, PointFilter>>(new Map());
+  const processingRef = useRef<boolean>(false); // Lock to prevent overlapping MediaPipe calls
+  const lastProcessTimeRef = useRef<number>(0); // FPS throttling
 
   const processFrame = useCallback(async () => {
     if (!faceMeshRef.current || !videoElementRef.current) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
       return;
     }
 
     const videoElement = videoElementRef.current;
+    const now = performance.now();
+    
+    // Throttle to ~25 fps (40ms per frame) to prevent MediaPipe overload
+    const timeSinceLastProcess = now - lastProcessTimeRef.current;
+    if (timeSinceLastProcess < 40) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
+
+    // Skip if MediaPipe is still processing the previous frame
+    if (processingRef.current) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
     
     if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
       try {
+        processingRef.current = true; // Lock
+        lastProcessTimeRef.current = now;
         await faceMeshRef.current.send({ image: videoElement });
       } catch (err) {
         console.error('Face tracking error:', err);
+      } finally {
+        processingRef.current = false; // Unlock
       }
     }
+
+    // Continue the loop
+    animationFrameRef.current = requestAnimationFrame(processFrame);
   }, []);
 
   const initialize = async (videoElement: HTMLVideoElement) => {
@@ -115,6 +139,10 @@ export function useFaceTracking(): UseFaceTrackingReturn {
       console.log('MediaPipe FaceMesh initialized successfully!');
       
       faceMeshRef.current = faceMesh;
+
+      // Start the tracking loop
+      console.log('Starting face tracking loop...');
+      animationFrameRef.current = requestAnimationFrame(processFrame);
     } catch (err) {
       console.error('Failed to initialize face tracking:', err);
       setError('Face tracking unavailable. Please refresh to try again.');
@@ -123,6 +151,11 @@ export function useFaceTracking(): UseFaceTrackingReturn {
   };
 
   const stop = useCallback(() => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
     if (faceMeshRef.current) {
       faceMeshRef.current.close();
       faceMeshRef.current = null;
@@ -143,7 +176,6 @@ export function useFaceTracking(): UseFaceTrackingReturn {
     landmarks,
     isTracking,
     initialize,
-    processFrame,
     stop,
     error,
   };
