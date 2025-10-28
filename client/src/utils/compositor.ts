@@ -64,187 +64,7 @@ export function getFaceBoundingBox(landmarks: LandmarkPoint[]): {
   };
 }
 
-// Cache for last valid segments to prevent flickering
-let lastValidSegments: any = null;
-
-/**
- * Extract forehead landmarks that define the bandana wrap curve
- * Returns points from left temple to right temple along the forehead
- */
-function getForeheadCurve(landmarks: LandmarkPoint[]): LandmarkPoint[] {
-  // Create a smooth curve across the forehead using key landmarks
-  // Left to right: left temple -> left brow -> center forehead -> right brow -> right temple
-  const curveIndices = [
-    127, // Left temple
-    162, 21, 54, 103, 67, 109, 10, // Left side to center
-    338, 297, 332, 284, 251, 389, 356 // Center to right temple
-  ];
-  
-  return curveIndices.map(i => landmarks[i]).filter(Boolean);
-}
-
-/**
- * Generate triangulated mesh for smooth bandana wrapping
- * Creates a strip of quads (2 triangles each) along the forehead curve
- */
-function generateBandanaMesh(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number) {
-  const foreheadCurve = getForeheadCurve(landmarks);
-  
-  if (foreheadCurve.length < 3) {
-    return null;
-  }
-  
-  // Calculate bandana height based on forehead to eyebrow distance
-  const foreheadTop = landmarks[10]; // Center top
-  const leftBrow = landmarks[105];
-  const rightBrow = landmarks[334];
-  const avgBrowY = ((leftBrow?.y || 0) + (rightBrow?.y || 0)) / 2;
-  const bandanaHeight = Math.max(30, Math.abs((avgBrowY - (foreheadTop?.y || 0)) * canvasHeight * 2.2));
-  
-  // Create quads along the curve
-  const quads: Array<{
-    // Screen coordinates (destination)
-    topLeft: { x: number; y: number };
-    topRight: { x: number; y: number };
-    bottomLeft: { x: number; y: number };
-    bottomRight: { x: number; y: number };
-    // UV coordinates (source texture)
-    uvTopLeft: { x: number; y: number };
-    uvTopRight: { x: number; y: number };
-    uvBottomLeft: { x: number; y: number };
-    uvBottomRight: { x: number; y: number };
-  }> = [];
-  
-  const numSegments = foreheadCurve.length - 1;
-  
-  for (let i = 0; i < numSegments; i++) {
-    const p1 = foreheadCurve[i];
-    const p2 = foreheadCurve[i + 1];
-    
-    // Screen coordinates
-    const x1 = p1.x * canvasWidth;
-    const y1 = p1.y * canvasHeight;
-    const x2 = p2.x * canvasWidth;
-    const y2 = p2.y * canvasHeight;
-    
-    // Calculate normal direction (perpendicular to curve) for bottom edge
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const normalX = -dy / length;
-    const normalY = dx / length;
-    
-    // Bottom edge points (extended downward along normal)
-    const bottomX1 = x1 + normalX * bandanaHeight;
-    const bottomY1 = y1 + normalY * bandanaHeight;
-    const bottomX2 = x2 + normalX * bandanaHeight;
-    const bottomY2 = y2 + normalY * bandanaHeight;
-    
-    // UV coordinates (normalized 0-1 across bandana texture)
-    const uLeft = i / numSegments;
-    const uRight = (i + 1) / numSegments;
-    
-    quads.push({
-      // Destination (screen space)
-      topLeft: { x: x1, y: y1 },
-      topRight: { x: x2, y: y2 },
-      bottomLeft: { x: bottomX1, y: bottomY1 },
-      bottomRight: { x: bottomX2, y: bottomY2 },
-      // Source (texture UV space)
-      uvTopLeft: { x: uLeft, y: 0 },
-      uvTopRight: { x: uRight, y: 0 },
-      uvBottomLeft: { x: uLeft, y: 1 },
-      uvBottomRight: { x: uRight, y: 1 },
-    });
-  }
-  
-  return quads;
-}
-
-/**
- * Calculate bandana wrapping positions for three segments (left, center, right)
- */
-export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number) {
-  // Key landmark points for bandana placement
-  // Forehead center: 10
-  // Left temple: 127
-  // Right temple: 356
-  // Left eyebrow outer: 70
-  // Right eyebrow outer: 300
-  // Left eyebrow inner: 105
-  // Right eyebrow inner: 334
-  
-  const foreheadCenter = landmarks[10];
-  const leftTemple = landmarks[127];
-  const rightTemple = landmarks[356];
-  const leftBrowOuter = landmarks[70];
-  const rightBrowOuter = landmarks[300];
-  const leftBrowInner = landmarks[105];
-  const rightBrowInner = landmarks[334];
-
-  // Validate landmarks exist
-  if (!foreheadCenter || !leftTemple || !rightTemple || 
-      !leftBrowOuter || !rightBrowOuter || !leftBrowInner || !rightBrowInner) {
-    // Return last valid segments if available
-    if (lastValidSegments) {
-      return lastValidSegments;
-    }
-    // Fallback to centered position
-    return {
-      center: { x: canvasWidth / 2, y: canvasHeight * 0.2, width: canvasWidth * 0.4, height: canvasHeight * 0.15 },
-      left: { x: canvasWidth * 0.3, y: canvasHeight * 0.2, width: canvasWidth * 0.2, height: canvasHeight * 0.13, angle: 15 },
-      right: { x: canvasWidth * 0.7, y: canvasHeight * 0.2, width: canvasWidth * 0.2, height: canvasHeight * 0.13, angle: -15 },
-    };
-  }
-
-  // Calculate positions in canvas coordinates
-  const centerX = foreheadCenter.x * canvasWidth;
-  const centerY = foreheadCenter.y * canvasHeight;
-  
-  const leftTempleX = leftTemple.x * canvasWidth;
-  const leftTempleY = leftTemple.y * canvasHeight;
-  
-  const rightTempleX = rightTemple.x * canvasWidth;
-  const rightTempleY = rightTemple.y * canvasHeight;
-  
-  // Calculate bandana height based on forehead to eyebrow distance
-  const avgBrowY = ((leftBrowOuter.y + rightBrowOuter.y + leftBrowInner.y + rightBrowInner.y) / 4) * canvasHeight;
-  const rawBandanaHeight = (avgBrowY - centerY) * 2.2;
-  
-  // Clamp to positive value to prevent flipping (minimum 30px)
-  const bandanaHeight = Math.max(30, rawBandanaHeight);
-  
-  // Face width for scaling
-  const faceWidth = Math.abs(rightTempleX - leftTempleX);
-  
-  const segments = {
-    center: {
-      x: centerX,
-      y: centerY,
-      width: faceWidth * 0.6, // Center section width
-      height: bandanaHeight,
-    },
-    left: {
-      x: leftTempleX,
-      y: leftTempleY,
-      width: faceWidth * 0.35, // Side section width
-      height: bandanaHeight * 0.9,
-      angle: 15, // Degrees to rotate for wrapping effect
-    },
-    right: {
-      x: rightTempleX,
-      y: rightTempleY,
-      width: faceWidth * 0.35,
-      height: bandanaHeight * 0.9,
-      angle: -15, // Degrees to rotate for wrapping effect
-    },
-  };
-  
-  // Cache valid segments
-  lastValidSegments = segments;
-  
-  return segments;
-}
+// MediaPipe-specific helper functions removed - incompatible with face-api.js 68-point landmarks
 
 /**
  * Calculate affine transform matrix from source quad to destination quad
@@ -290,7 +110,7 @@ function calculateQuadTransform(
 
 /**
  * Ultra-simple, crash-proof bandana rendering
- * Just tracks forehead position - no rotation or complex math
+ * Works with face-api.js 68-point landmarks
  * NOTE: Caller is responsible for managing ctx.save()/restore() and transforms
  */
 export function drawWrappedBandana(
@@ -303,7 +123,7 @@ export function drawWrappedBandana(
 ) {
   try {
     // Validate everything
-    if (!ctx || !bandanaImage || !landmarks || landmarks.length < 468) {
+    if (!ctx || !bandanaImage || !landmarks || landmarks.length < 68) {
       return;
     }
     
@@ -311,29 +131,39 @@ export function drawWrappedBandana(
       return;
     }
     
-    // Get simple forehead landmarks
-    const forehead = landmarks[10];
-    const leftTemple = landmarks[127];
-    const rightTemple = landmarks[356];
+    // face-api.js 68-point model indices:
+    // Left eyebrow outer: 17, Right eyebrow outer: 26
+    // Left eyebrow inner: 21, Right eyebrow inner: 22
+    const leftEyebrow = landmarks[17];
+    const rightEyebrow = landmarks[26];
+    const leftInner = landmarks[21];
+    const rightInner = landmarks[22];
     
-    if (!forehead || !leftTemple || !rightTemple) {
+    if (!leftEyebrow || !rightEyebrow || !leftInner || !rightInner) {
       return;
     }
     
     // Convert to pixel coordinates
-    const foreheadX = forehead.x * canvasWidth;
-    const foreheadY = forehead.y * canvasHeight;
-    const leftX = leftTemple.x * canvasWidth;
-    const rightX = rightTemple.x * canvasWidth;
+    const leftX = leftEyebrow.x * canvasWidth;
+    const rightX = rightEyebrow.x * canvasWidth;
+    const leftInnerX = leftInner.x * canvasWidth;
+    const rightInnerX = rightInner.x * canvasWidth;
     
-    // Calculate simple width and height
+    // Calculate forehead position (above eyebrows)
+    const eyebrowCenterY = (
+      (leftEyebrow.y + rightEyebrow.y + leftInner.y + rightInner.y) / 4
+    ) * canvasHeight;
+    
+    const foreheadCenterX = ((leftX + rightX) / 2);
+    
+    // Calculate bandana dimensions
     const faceWidth = Math.abs(rightX - leftX);
-    const bandanaWidth = faceWidth * 1.3;
-    const bandanaHeight = bandanaWidth * 0.4;
+    const bandanaWidth = faceWidth * 1.4; // Slightly wider than face
+    const bandanaHeight = bandanaWidth * 0.35; // Aspect ratio for bandana
     
-    // Position at top of forehead
-    const x = foreheadX - bandanaWidth / 2;
-    const y = foreheadY - bandanaHeight / 2;
+    // Position bandana above eyebrows
+    const x = foreheadCenterX - bandanaWidth / 2;
+    const y = eyebrowCenterY - bandanaHeight * 0.8; // Position mostly above eyebrows
     
     // Draw simple rectangle - no save/restore (caller handles it)
     ctx.drawImage(bandanaImage, x, y, bandanaWidth, bandanaHeight);
@@ -346,18 +176,9 @@ export function drawWrappedBandana(
 }
 
 /**
- * Legacy function for backward compatibility
- * @deprecated Use getBandanaSegments and drawWrappedBandana instead
+ * Legacy function - NO LONGER COMPATIBLE with face-api.js 68-point landmarks
+ * @deprecated Removed - was designed for MediaPipe 468-point landmarks
  */
-export function getForeheadPosition(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} {
-  const segments = getBandanaSegments(landmarks, canvasWidth, canvasHeight);
-  return segments.center;
-}
 
 interface CompositeOptions {
   backgroundImage: HTMLImageElement;

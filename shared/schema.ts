@@ -25,12 +25,6 @@ export interface LandmarkPoint {
   z?: number;
 }
 
-// Face mesh results from MediaPipe
-export interface FaceMeshResults {
-  multiFaceLandmarks?: LandmarkPoint[][];
-  image?: HTMLCanvasElement | HTMLVideoElement;
-}
-
 // Capture settings
 export interface CaptureSettings {
   bandana: Bandana | null;

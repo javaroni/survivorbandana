@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FaceMesh } from '@mediapipe/face_mesh';
-import type { FaceMeshResults, LandmarkPoint } from '@shared/schema';
-import { PointFilter } from '@/utils/filters';
+import * as faceapi from 'face-api.js';
+import type { LandmarkPoint } from '@shared/schema';
 
 export interface UseFaceTrackingReturn {
   landmarks: LandmarkPoint[] | null;
@@ -16,15 +15,13 @@ export function useFaceTracking(): UseFaceTrackingReturn {
   const [isTracking, setIsTracking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const faceMeshRef = useRef<FaceMesh | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const filtersRef = useRef<Map<number, PointFilter>>(new Map());
-  const processingRef = useRef<boolean>(false); // Lock to prevent overlapping MediaPipe calls
-  const lastProcessTimeRef = useRef<number>(0); // FPS throttling
+  const modelsLoadedRef = useRef<boolean>(false);
+  const lastProcessTimeRef = useRef<number>(0);
 
   const processFrame = useCallback(async () => {
-    if (!faceMeshRef.current || !videoElementRef.current) {
+    if (!videoElementRef.current || !modelsLoadedRef.current) {
       animationFrameRef.current = requestAnimationFrame(processFrame);
       return;
     }
@@ -32,32 +29,45 @@ export function useFaceTracking(): UseFaceTrackingReturn {
     const videoElement = videoElementRef.current;
     const now = performance.now();
     
-    // Throttle to ~25 fps (40ms per frame) to prevent MediaPipe overload
+    // Throttle to ~15 fps (66ms per frame) for stability
     const timeSinceLastProcess = now - lastProcessTimeRef.current;
-    if (timeSinceLastProcess < 40) {
-      animationFrameRef.current = requestAnimationFrame(processFrame);
-      return;
-    }
-
-    // Skip if MediaPipe is still processing the previous frame
-    if (processingRef.current) {
+    if (timeSinceLastProcess < 66) {
       animationFrameRef.current = requestAnimationFrame(processFrame);
       return;
     }
     
     if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
       try {
-        processingRef.current = true; // Lock
         lastProcessTimeRef.current = now;
-        await faceMeshRef.current.send({ image: videoElement });
+        
+        // Detect face with landmarks (68 points)
+        const detection = await faceapi
+          .detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions({
+            inputSize: 224, // Smaller = faster, less accurate
+            scoreThreshold: 0.5
+          }))
+          .withFaceLandmarks();
+        
+        if (detection && detection.landmarks) {
+          // Convert face-api.js landmarks to our format
+          const positions = detection.landmarks.positions;
+          const normalizedLandmarks = positions.map((point) => ({
+            x: point.x / videoElement.videoWidth,
+            y: point.y / videoElement.videoHeight
+          }));
+          
+          setLandmarks(normalizedLandmarks);
+          setIsTracking(true);
+        } else {
+          setLandmarks(null);
+          setIsTracking(false);
+        }
       } catch (err) {
         console.error('Face tracking error:', err);
-      } finally {
-        processingRef.current = false; // Unlock
+        // Don't crash, just continue
       }
     }
 
-    // Continue the loop
     animationFrameRef.current = requestAnimationFrame(processFrame);
   }, []);
 
@@ -66,83 +76,23 @@ export function useFaceTracking(): UseFaceTrackingReturn {
       setError(null);
       videoElementRef.current = videoElement;
 
-      console.log('Creating FaceMesh instance...');
+      console.log('Loading face-api.js models...');
       
-      const faceMesh = new FaceMesh({
-        locateFile: (file) => {
-          const url = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-          console.log('Loading MediaPipe file:', url);
-          return url;
-        },
-      });
-
-      console.log('Setting FaceMesh options...');
-      faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: false, // Disable to reduce complexity
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-
-      console.log('Setting up onResults callback...');
-      faceMesh.onResults((results: any) => {
-        try {
-          if (!results || !results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-            setLandmarks(null);
-            setIsTracking(false);
-            return;
-          }
-          
-          const rawLandmarks = results.multiFaceLandmarks[0];
-          
-          if (!rawLandmarks || !Array.isArray(rawLandmarks) || rawLandmarks.length === 0) {
-            setLandmarks(null);
-            setIsTracking(false);
-            return;
-          }
-          
-          // Apply One-Euro filter to smooth landmarks - with error handling
-          const smoothedLandmarks = rawLandmarks.map((point: any, index: number) => {
-            try {
-              if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
-                return { x: 0, y: 0 };
-              }
-              
-              if (!filtersRef.current.has(index)) {
-                filtersRef.current.set(index, new PointFilter({
-                  minCutoff: 1.0,
-                  beta: 0.007,
-                  dcutoff: 1.0,
-                }));
-              }
-              
-              const filter = filtersRef.current.get(index)!;
-              return filter.filter({ x: point.x, y: point.y });
-            } catch (filterError) {
-              // If filtering fails, return raw point
-              return { x: point.x || 0, y: point.y || 0 };
-            }
-          });
-
-          setLandmarks(smoothedLandmarks);
-          setIsTracking(true);
-        } catch (error) {
-          // Silently handle errors in onResults to prevent crashes
-          console.warn('Error in face tracking onResults:', error);
-          setLandmarks(null);
-          setIsTracking(false);
-        }
-      });
-
-      console.log('Initializing MediaPipe FaceMesh...');
-      await faceMesh.initialize();
-      console.log('MediaPipe FaceMesh initialized successfully!');
+      // Load only the models we need (tiny models for speed)
+      const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
       
-      faceMeshRef.current = faceMesh;
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+      ]);
+      
+      console.log('✅ face-api.js models loaded successfully!');
+      modelsLoadedRef.current = true;
 
       // Start the tracking loop
       console.log('Starting face tracking loop...');
       animationFrameRef.current = requestAnimationFrame(processFrame);
+      
     } catch (err) {
       console.error('Failed to initialize face tracking:', err);
       setError('Face tracking unavailable. Please refresh to try again.');
@@ -156,12 +106,7 @@ export function useFaceTracking(): UseFaceTrackingReturn {
       animationFrameRef.current = null;
     }
 
-    if (faceMeshRef.current) {
-      faceMeshRef.current.close();
-      faceMeshRef.current = null;
-    }
-
-    filtersRef.current.clear();
+    modelsLoadedRef.current = false;
     setLandmarks(null);
     setIsTracking(false);
   }, []);
