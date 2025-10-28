@@ -44,19 +44,25 @@ export function useFaceTracking(): UseFaceTrackingReturn {
       setError(null);
       videoElementRef.current = videoElement;
 
+      console.log('Creating FaceMesh instance...');
+      
       const faceMesh = new FaceMesh({
         locateFile: (file) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+          const url = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+          console.log('Loading MediaPipe file:', url);
+          return url;
         },
       });
 
+      console.log('Setting FaceMesh options...');
       faceMesh.setOptions({
         maxNumFaces: 1,
-        refineLandmarks: true,
+        refineLandmarks: false, // Disable to reduce complexity
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5,
       });
 
+      console.log('Setting up onResults callback...');
       faceMesh.onResults((results: any) => {
         if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
           const rawLandmarks = results.multiFaceLandmarks[0];
@@ -82,14 +88,18 @@ export function useFaceTracking(): UseFaceTrackingReturn {
         }
       });
 
+      console.log('Initializing MediaPipe FaceMesh...');
       await faceMesh.initialize();
+      console.log('MediaPipe FaceMesh initialized successfully!');
+      
       faceMeshRef.current = faceMesh;
 
       // Start processing frames
+      console.log('Starting frame processing...');
       animationFrameRef.current = requestAnimationFrame(processFrame);
     } catch (err) {
       console.error('Failed to initialize face tracking:', err);
-      setError('Failed to initialize face tracking');
+      setError('Face tracking unavailable. Please refresh to try again.');
       setIsTracking(false);
     }
   };
