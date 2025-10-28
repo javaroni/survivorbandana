@@ -196,104 +196,104 @@ export default function Studio() {
     );
   }
 
-  if (!isReady) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background">
-        <div className="text-center space-y-4">
-          <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto" />
-          <h2 className="text-2xl font-display font-bold text-foreground">
-            Preparing Your Adventure...
-          </h2>
-          <p className="text-muted-foreground">
-            Initializing camera and face tracking
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex flex-col bg-card">
-      {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b border-card-border bg-card/80 backdrop-blur-md z-10">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setLocation("/")}
-          data-testid="button-back"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <h1 className="text-lg font-display font-bold uppercase tracking-wide">
-          AR Studio
-        </h1>
-        <div className="w-10" />
-      </header>
+      {/* Hidden video element - always rendered so ref works */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="absolute w-0 h-0 opacity-0 pointer-events-none"
+      />
 
-      {/* Camera Preview */}
-      <div className="flex-1 relative bg-black overflow-hidden">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
-        />
-        
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover z-10"
-          data-testid="canvas-preview"
-          style={{ display: 'none' }}
-        />
-
-        {/* Face detection indicator */}
-        {!isTracking && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full">
-            <p className="text-xs text-white">Position your face in frame</p>
+      {!isReady ? (
+        <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background">
+          <div className="text-center space-y-4">
+            <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto" />
+            <h2 className="text-2xl font-display font-bold text-foreground">
+              Preparing Your Adventure...
+            </h2>
+            <p className="text-muted-foreground">
+              Initializing camera and face tracking
+            </p>
           </div>
-        )}
-
-        {trackingError && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-destructive/90 backdrop-blur-sm px-4 py-2 rounded-full">
-            <p className="text-xs text-destructive-foreground">{trackingError}</p>
-          </div>
-        )}
-
-        {/* Capture Button (centered at bottom) */}
-        <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2">
-          <CaptureButton
-            onCapture={handleCapture}
-            disabled={!isTracking || !selectedBackground}
-            isCapturing={isCapturing}
-          />
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Header */}
+          <header className="flex items-center justify-between p-4 border-b border-card-border bg-card/80 backdrop-blur-md z-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setLocation("/")}
+              data-testid="button-back"
+              aria-label="Go back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <h1 className="text-lg font-display font-bold uppercase tracking-wide">
+              AR Studio
+            </h1>
+            <div className="w-10" />
+          </header>
 
-      {/* Picker Panel */}
-      <div className="bg-card/90 backdrop-blur-lg border-t border-card-border p-4 space-y-4 animate-slide-up">
-        <BandanaPicker
-          bandanas={BANDANAS}
-          selected={selectedBandana}
-          onSelect={setSelectedBandana}
-        />
-        
-        <BackgroundPicker
-          backgrounds={BACKGROUNDS}
-          selected={selectedBackground}
-          onSelect={setSelectedBackground}
-        />
-      </div>
+          {/* Camera Preview */}
+          <div className="flex-1 relative bg-black overflow-hidden">
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full object-cover"
+              data-testid="canvas-preview"
+            />
 
-      {/* Preview Modal */}
-      {capturedImage && (
-        <PreviewModal
-          imageUrl={capturedImage.url}
-          imageBlob={capturedImage.blob}
-          onClose={handleClosePreview}
-          isOpen={showPreview}
-        />
+            {/* Face detection indicator */}
+            {!isTracking && (
+              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full z-20">
+                <p className="text-xs text-white">Position your face in frame</p>
+              </div>
+            )}
+
+            {trackingError && (
+              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-destructive/90 backdrop-blur-sm px-4 py-2 rounded-full z-20">
+                <p className="text-xs text-destructive-foreground">{trackingError}</p>
+              </div>
+            )}
+
+            {/* Capture Button (centered at bottom) */}
+            <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2 z-20">
+              <CaptureButton
+                onCapture={handleCapture}
+                disabled={!isTracking || !selectedBackground}
+                isCapturing={isCapturing}
+              />
+            </div>
+          </div>
+
+          {/* Picker Panel */}
+          <div className="bg-card/90 backdrop-blur-lg border-t border-card-border p-4 space-y-4 animate-slide-up">
+            <BandanaPicker
+              bandanas={BANDANAS}
+              selected={selectedBandana}
+              onSelect={setSelectedBandana}
+            />
+            
+            <BackgroundPicker
+              backgrounds={BACKGROUNDS}
+              selected={selectedBackground}
+              onSelect={setSelectedBackground}
+            />
+          </div>
+
+          {/* Preview Modal */}
+          {capturedImage && (
+            <PreviewModal
+              imageUrl={capturedImage.url}
+              imageBlob={capturedImage.blob}
+              onClose={handleClosePreview}
+              isOpen={showPreview}
+            />
+          )}
+        </>
       )}
     </div>
   );
