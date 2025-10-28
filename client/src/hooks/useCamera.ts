@@ -35,28 +35,46 @@ export function useCamera(): UseCameraReturn {
       setStream(mediaStream);
       setPermissionState('granted');
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        
-        // Wait for video to be ready
-        await new Promise<void>((resolve) => {
-          if (videoRef.current) {
-            videoRef.current.onloadedmetadata = () => {
-              console.log('Video metadata loaded');
-              videoRef.current?.play().then(() => {
-                console.log('Video playing, setting isReady to true');
-                setIsReady(true);
-                resolve();
-              }).catch((err) => {
-                console.error('Video play error:', err);
-                // Try to set ready anyway
-                setIsReady(true);
-                resolve();
-              });
-            };
-          }
-        });
+      // Wait for video element to be available
+      let attempts = 0;
+      while (!videoRef.current && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
       }
+
+      if (!videoRef.current) {
+        console.error('Video element never became available');
+        setError('Failed to initialize video element');
+        return;
+      }
+
+      console.log('Video element found, setting srcObject');
+      videoRef.current.srcObject = mediaStream;
+      
+      // Wait for video to be ready with timeout
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          console.log('Video load timeout, forcing ready state');
+          setIsReady(true);
+          resolve();
+        }, 5000);
+
+        if (videoRef.current) {
+          videoRef.current.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            console.log('Video metadata loaded');
+            videoRef.current?.play().then(() => {
+              console.log('Video playing, setting isReady to true');
+              setIsReady(true);
+              resolve();
+            }).catch((err) => {
+              console.error('Video play error:', err);
+              setIsReady(true);
+              resolve();
+            });
+          };
+        }
+      });
       
       console.log('Camera started, isReady should be true');
     } catch (err) {
