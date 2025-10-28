@@ -85,26 +85,30 @@ export default function Studio() {
     let animationId: number;
 
     const render = () => {
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        // Set canvas size to match video
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+      try {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          // Set canvas size to match video
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
 
-        // Mirror the video horizontally for selfie mode
-        ctx.save();
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-        ctx.restore();
-
-        // Draw bandana overlay if face detected
-        if (landmarks && landmarks.length > 0 && bandanaImageRef.current) {
+          // Mirror the video horizontally for selfie mode
           ctx.save();
-          // Mirror bandana as well for consistency
           ctx.scale(-1, 1);
-          ctx.translate(-canvas.width, 0);
-          drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height);
+          ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
           ctx.restore();
+
+          // Draw bandana overlay if face detected
+          if (landmarks && landmarks.length > 0 && bandanaImageRef.current) {
+            ctx.save();
+            // Mirror bandana as well for consistency
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+            drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height);
+            ctx.restore();
+          }
         }
+      } catch (error) {
+        console.error('Render error:', error);
       }
 
       animationId = requestAnimationFrame(render);
@@ -120,9 +124,17 @@ export default function Studio() {
   }, [isReady, landmarks]);
 
   const handleCapture = async () => {
-    if (!videoRef.current || !selectedBackground || isCapturing) return;
+    if (!videoRef.current || !selectedBackground || isCapturing) {
+      console.log('Capture blocked:', { 
+        hasVideo: !!videoRef.current, 
+        hasBackground: !!selectedBackground, 
+        isCapturing 
+      });
+      return;
+    }
 
     setIsCapturing(true);
+    console.log('Starting capture with background:', selectedBackground.name);
 
     try {
       // Play audio cue
@@ -132,21 +144,26 @@ export default function Studio() {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Load background image
+      console.log('Loading background image:', selectedBackground.imagePath);
       const bgImage = await loadImage(selectedBackground.imagePath);
+      console.log('Background loaded successfully');
       
       // Composite the final image
+      console.log('Compositing image...');
       const blob = await compositeImage({
         backgroundImage: bgImage,
         videoFrame: videoRef.current,
         bandanaImage: bandanaImageRef.current,
         landmarks: landmarks,
       });
+      console.log('Composite complete');
 
       const url = URL.createObjectURL(blob);
       setCapturedImage({ url, blob });
       setShowPreview(true);
     } catch (error) {
       console.error('Capture failed:', error);
+      alert('Capture failed: ' + (error as Error).message);
     } finally {
       setIsCapturing(false);
     }

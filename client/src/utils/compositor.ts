@@ -288,8 +288,11 @@ function calculateQuadTransform(
   return { a, b, c, d, e, f };
 }
 
+// Cache for last valid bandana orientation to prevent jitter
+let lastBandanaOrientation: { angle: number; centerX: number; centerY: number; width: number; height: number } | null = null;
+
 /**
- * Render bandana with simple positioning that follows face landmarks
+ * Render bandana with rotation following face orientation
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -307,7 +310,17 @@ export function drawWrappedBandana(
   
   // Validate landmarks
   if (!foreheadTop || !leftTemple || !rightTemple || !leftBrow || !rightBrow) {
-    return; // Don't render if we don't have valid landmarks
+    // Use last valid orientation if available
+    if (lastBandanaOrientation) {
+      const { angle, centerX, centerY, width, height } = lastBandanaOrientation;
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(angle);
+      ctx.globalAlpha = 0.95;
+      ctx.drawImage(bandanaImage, -width / 2, -height / 2, width, height);
+      ctx.restore();
+    }
+    return;
   }
   
   // Calculate bandana position
@@ -315,8 +328,16 @@ export function drawWrappedBandana(
   const centerY = foreheadTop.y * canvasHeight;
   
   const leftX = leftTemple.x * canvasWidth;
+  const leftY = leftTemple.y * canvasHeight;
   const rightX = rightTemple.x * canvasWidth;
-  const faceWidth = Math.abs(rightX - leftX);
+  const rightY = rightTemple.y * canvasHeight;
+  
+  // Calculate face rotation angle from temple line
+  const dx = rightX - leftX;
+  const dy = rightY - leftY;
+  const angle = Math.atan2(dy, dx);
+  
+  const faceWidth = Math.sqrt(dx * dx + dy * dy);
   
   // Calculate height based on forehead to eyebrow distance
   const avgBrowY = ((leftBrow.y + rightBrow.y) / 2) * canvasHeight;
@@ -325,17 +346,26 @@ export function drawWrappedBandana(
   // Make bandana slightly wider than face for wrapping appearance
   const bandanaWidth = faceWidth * 1.2;
   
-  // Position bandana at top of forehead
-  const x = centerX - bandanaWidth / 2;
-  const y = centerY - bandanaHeight * 0.3; // Offset upward to sit on forehead
+  // Cache this orientation
+  lastBandanaOrientation = {
+    angle,
+    centerX,
+    centerY: centerY - bandanaHeight * 0.2, // Offset upward
+    width: bandanaWidth,
+    height: bandanaHeight,
+  };
   
-  // Draw bandana
+  // Draw bandana with rotation
   ctx.save();
+  ctx.translate(centerX, centerY - bandanaHeight * 0.2);
+  ctx.rotate(angle);
   ctx.globalAlpha = 0.95;
   ctx.drawImage(
     bandanaImage,
-    x, y,
-    bandanaWidth, bandanaHeight
+    -bandanaWidth / 2,
+    -bandanaHeight / 2,
+    bandanaWidth,
+    bandanaHeight
   );
   ctx.restore();
 }
