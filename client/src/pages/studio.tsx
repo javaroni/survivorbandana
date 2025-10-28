@@ -39,6 +39,7 @@ export default function Studio() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bandanaImageRef = useRef<HTMLImageElement | null>(null);
   const landmarksRef = useRef<any>(null); // Ref to avoid render loop thrashing
+  const canvasSizeRef = useRef({ width: 0, height: 0 }); // Track canvas size to avoid unnecessary resizing
 
   const { videoRef, permissionState, error: cameraError, startCamera, isReady } = useCamera();
   const { landmarks, isTracking, initialize: initTracking, error: trackingError } = useFaceTracking();
@@ -97,9 +98,17 @@ export default function Studio() {
     const render = () => {
       try {
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
-          // Set canvas size to match video
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+          // Only resize canvas when video dimensions change (not every frame!)
+          if (canvasSizeRef.current.width !== video.videoWidth || 
+              canvasSizeRef.current.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvasSizeRef.current.width = video.videoWidth;
+            canvasSizeRef.current.height = video.videoHeight;
+          }
+
+          // Clear canvas for this frame
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
 
           // Mirror the video horizontally for selfie mode
           ctx.save();
