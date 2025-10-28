@@ -65,7 +65,7 @@ export function getFaceBoundingBox(landmarks: LandmarkPoint[]): {
 }
 
 /**
- * Get forehead position for bandana placement (top of face)
+ * Get forehead position for bandana placement (wraps around forehead)
  */
 export function getForeheadPosition(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number): {
   x: number;
@@ -73,31 +73,45 @@ export function getForeheadPosition(landmarks: LandmarkPoint[], canvasWidth: num
   width: number;
   height: number;
 } {
-  // Use specific landmarks for forehead region
-  // MediaPipe Face Mesh landmark indices for forehead area
-  const foreheadIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+  // Use eyebrow landmarks for bandana placement
+  // MediaPipe Face Mesh landmark indices:
+  // Left eyebrow: 223, 222, 221, 189, 244, 233, 232, 231, 230, 229, 228
+  // Right eyebrow: 443, 442, 441, 413, 464, 453, 452, 451, 450, 449, 448
+  // Forehead center: 10, 151, 9
+  // Temple points: 127 (left), 356 (right)
+  const bandanaIndices = [
+    10, 151, 9, // Center forehead line
+    223, 222, 221, 189, 244, 233, 232, 231, // Left eyebrow
+    443, 442, 441, 413, 464, 453, 452, 451, // Right eyebrow
+    127, 356, // Temples for width
+  ];
   
-  const foreheadPoints = foreheadIndices.map(i => landmarks[i]).filter(Boolean);
+  const bandanaPoints = bandanaIndices.map(i => landmarks[i]).filter(Boolean);
   
-  if (foreheadPoints.length === 0) {
+  if (bandanaPoints.length === 0) {
     // Fallback to full face bounds
     const bbox = getFaceBoundingBox(landmarks);
     return {
       x: bbox.minX * canvasWidth,
       y: bbox.minY * canvasHeight,
       width: bbox.width * canvasWidth,
-      height: bbox.height * canvasHeight * 0.3,
+      height: bbox.height * canvasHeight * 0.25,
     };
   }
 
-  const bbox = getFaceBoundingBox(foreheadPoints);
+  const bbox = getFaceBoundingBox(bandanaPoints);
   const faceBox = getFaceBoundingBox(landmarks);
 
+  // Position bandana to wrap around the forehead/eyebrow area
+  // Extend width beyond face for wrapping effect
+  const bandanaWidth = faceBox.width * canvasWidth * 1.3; // 30% wider for wrap
+  const bandanaHeight = bbox.height * canvasHeight * 1.8; // Taller to cover forehead properly
+  
   return {
-    x: faceBox.minX * canvasWidth,
-    y: bbox.minY * canvasHeight - (bbox.height * canvasHeight * 0.2),
-    width: faceBox.width * canvasWidth,
-    height: bbox.height * canvasHeight * 1.5,
+    x: (faceBox.centerX * canvasWidth) - (bandanaWidth / 2), // Center on face
+    y: bbox.minY * canvasHeight - (bandanaHeight * 0.4), // Position above eyebrows
+    width: bandanaWidth,
+    height: bandanaHeight,
   };
 }
 
