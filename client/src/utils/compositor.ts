@@ -65,7 +65,119 @@ export function getFaceBoundingBox(landmarks: LandmarkPoint[]): {
 }
 
 /**
- * Get forehead position for bandana placement (wraps around forehead)
+ * Calculate bandana wrapping positions for three segments (left, center, right)
+ */
+export function getBandanaSegments(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number) {
+  // Key landmark points for bandana placement
+  // Forehead center: 10
+  // Left temple: 127
+  // Right temple: 356
+  // Left eyebrow outer: 70
+  // Right eyebrow outer: 300
+  // Left eyebrow inner: 105
+  // Right eyebrow inner: 334
+  
+  const foreheadCenter = landmarks[10];
+  const leftTemple = landmarks[127];
+  const rightTemple = landmarks[356];
+  const leftBrowOuter = landmarks[70];
+  const rightBrowOuter = landmarks[300];
+  const leftBrowInner = landmarks[105];
+  const rightBrowInner = landmarks[334];
+
+  // Calculate positions in canvas coordinates
+  const centerX = foreheadCenter.x * canvasWidth;
+  const centerY = foreheadCenter.y * canvasHeight;
+  
+  const leftTempleX = leftTemple.x * canvasWidth;
+  const leftTempleY = leftTemple.y * canvasHeight;
+  
+  const rightTempleX = rightTemple.x * canvasWidth;
+  const rightTempleY = rightTemple.y * canvasHeight;
+  
+  // Calculate bandana height based on forehead to eyebrow distance
+  const avgBrowY = ((leftBrowOuter.y + rightBrowOuter.y + leftBrowInner.y + rightBrowInner.y) / 4) * canvasHeight;
+  const bandanaHeight = (avgBrowY - centerY) * 2.2; // Cover from top of forehead to just above eyebrows
+  
+  // Face width for scaling
+  const faceWidth = Math.abs(rightTempleX - leftTempleX);
+  
+  return {
+    center: {
+      x: centerX,
+      y: centerY,
+      width: faceWidth * 0.6, // Center section width
+      height: bandanaHeight,
+    },
+    left: {
+      x: leftTempleX,
+      y: leftTempleY,
+      width: faceWidth * 0.35, // Side section width
+      height: bandanaHeight * 0.9,
+      angle: 15, // Degrees to rotate for wrapping effect
+    },
+    right: {
+      x: rightTempleX,
+      y: rightTempleY,
+      width: faceWidth * 0.35,
+      height: bandanaHeight * 0.9,
+      angle: -15, // Degrees to rotate for wrapping effect
+    },
+  };
+}
+
+/**
+ * Render bandana with three-segment wrapping effect
+ */
+export function drawWrappedBandana(
+  ctx: CanvasRenderingContext2D,
+  bandanaImage: HTMLImageElement,
+  landmarks: LandmarkPoint[],
+  canvasWidth: number,
+  canvasHeight: number
+) {
+  const segments = getBandanaSegments(landmarks, canvasWidth, canvasHeight);
+  const imgWidth = bandanaImage.width;
+  const imgHeight = bandanaImage.height;
+  
+  // Draw left side (rotated)
+  ctx.save();
+  ctx.translate(segments.left.x, segments.left.y);
+  ctx.rotate((segments.left.angle * Math.PI) / 180);
+  ctx.globalAlpha = 0.85; // Slightly transparent for depth
+  ctx.drawImage(
+    bandanaImage,
+    0, 0, imgWidth * 0.35, imgHeight, // Source: left 35% of image
+    -segments.left.width, 0, segments.left.width, segments.left.height // Destination
+  );
+  ctx.restore();
+  
+  // Draw center (main section with logo)
+  ctx.save();
+  ctx.drawImage(
+    bandanaImage,
+    imgWidth * 0.3, 0, imgWidth * 0.4, imgHeight, // Source: center 40% with logo
+    segments.center.x - segments.center.width / 2, segments.center.y,
+    segments.center.width, segments.center.height
+  );
+  ctx.restore();
+  
+  // Draw right side (rotated)
+  ctx.save();
+  ctx.translate(segments.right.x, segments.right.y);
+  ctx.rotate((segments.right.angle * Math.PI) / 180);
+  ctx.globalAlpha = 0.85; // Slightly transparent for depth
+  ctx.drawImage(
+    bandanaImage,
+    imgWidth * 0.65, 0, imgWidth * 0.35, imgHeight, // Source: right 35% of image
+    0, 0, segments.right.width, segments.right.height // Destination
+  );
+  ctx.restore();
+}
+
+/**
+ * Legacy function for backward compatibility
+ * @deprecated Use getBandanaSegments and drawWrappedBandana instead
  */
 export function getForeheadPosition(landmarks: LandmarkPoint[], canvasWidth: number, canvasHeight: number): {
   x: number;
@@ -73,46 +185,8 @@ export function getForeheadPosition(landmarks: LandmarkPoint[], canvasWidth: num
   width: number;
   height: number;
 } {
-  // Use eyebrow landmarks for bandana placement
-  // MediaPipe Face Mesh landmark indices:
-  // Left eyebrow: 223, 222, 221, 189, 244, 233, 232, 231, 230, 229, 228
-  // Right eyebrow: 443, 442, 441, 413, 464, 453, 452, 451, 450, 449, 448
-  // Forehead center: 10, 151, 9
-  // Temple points: 127 (left), 356 (right)
-  const bandanaIndices = [
-    10, 151, 9, // Center forehead line
-    223, 222, 221, 189, 244, 233, 232, 231, // Left eyebrow
-    443, 442, 441, 413, 464, 453, 452, 451, // Right eyebrow
-    127, 356, // Temples for width
-  ];
-  
-  const bandanaPoints = bandanaIndices.map(i => landmarks[i]).filter(Boolean);
-  
-  if (bandanaPoints.length === 0) {
-    // Fallback to full face bounds
-    const bbox = getFaceBoundingBox(landmarks);
-    return {
-      x: bbox.minX * canvasWidth,
-      y: bbox.minY * canvasHeight,
-      width: bbox.width * canvasWidth,
-      height: bbox.height * canvasHeight * 0.25,
-    };
-  }
-
-  const bbox = getFaceBoundingBox(bandanaPoints);
-  const faceBox = getFaceBoundingBox(landmarks);
-
-  // Position bandana to wrap around the forehead/eyebrow area
-  // Extend width beyond face for wrapping effect
-  const bandanaWidth = faceBox.width * canvasWidth * 1.3; // 30% wider for wrap
-  const bandanaHeight = bbox.height * canvasHeight * 1.8; // Taller to cover forehead properly
-  
-  return {
-    x: (faceBox.centerX * canvasWidth) - (bandanaWidth / 2), // Center on face
-    y: bbox.minY * canvasHeight - (bandanaHeight * 0.4), // Position above eyebrows
-    width: bandanaWidth,
-    height: bandanaHeight,
-  };
+  const segments = getBandanaSegments(landmarks, canvasWidth, canvasHeight);
+  return segments.center;
 }
 
 interface CompositeOptions {
@@ -171,17 +245,9 @@ export async function compositeImage(options: CompositeOptions): Promise<Blob> {
 
   // 3. Draw bandana overlay (if face detected and bandana selected)
   if (bandanaImage && landmarks && landmarks.length > 0) {
-    const bandanaPos = getForeheadPosition(landmarks, drawWidth, drawHeight);
-    
     ctx.save();
     ctx.translate(offsetX, offsetY);
-    ctx.drawImage(
-      bandanaImage,
-      bandanaPos.x,
-      bandanaPos.y,
-      bandanaPos.width,
-      bandanaPos.height
-    );
+    drawWrappedBandana(ctx, bandanaImage, landmarks, drawWidth, drawHeight);
     ctx.restore();
   }
 

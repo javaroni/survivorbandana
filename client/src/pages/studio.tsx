@@ -9,21 +9,17 @@ import { PreviewModal } from "@/components/PreviewModal";
 import { useCamera } from "@/hooks/useCamera";
 import { useFaceTracking } from "@/hooks/useFaceTracking";
 import { useAudioCue } from "@/hooks/useAudioCue";
-import { compositeImage, loadImage, getForeheadPosition } from "@/utils/compositor";
+import { compositeImage, loadImage, drawWrappedBandana } from "@/utils/compositor";
 import type { Bandana, BackgroundScene } from "@shared/schema";
 
-import redBandana from "@assets/generated_images/Red_tribal_bandana_headband_429c26b4.png";
-import orangeBandana from "@assets/generated_images/Orange_flame_bandana_headband_5333090e.png";
-import tealBandana from "@assets/generated_images/Teal_ocean_bandana_headband_5495ec20.png";
+import survivorBandana from "@assets/bandana_artwork_1761672466949.png";
 
 import beachBg from "@assets/generated_images/Tropical_island_beach_paradise_76942181.png";
 import campfireBg from "@assets/generated_images/Tribal_campfire_with_torches_0e4d6140.png";
 import tribalCouncilBg from "@assets/generated_images/Tribal_council_night_scene_d967f43c.png";
 
 const BANDANAS: Bandana[] = [
-  { id: "red", name: "Tribal Red", imagePath: redBandana },
-  { id: "orange", name: "Flame Orange", imagePath: orangeBandana },
-  { id: "teal", name: "Ocean Teal", imagePath: tealBandana },
+  { id: "survivor", name: "Survivor 50", imagePath: survivorBandana },
 ];
 
 const BACKGROUNDS: BackgroundScene[] = [
@@ -102,18 +98,11 @@ export default function Studio() {
 
         // Draw bandana overlay if face detected
         if (landmarks && landmarks.length > 0 && bandanaImageRef.current) {
-          const bandanaPos = getForeheadPosition(landmarks, canvas.width, canvas.height);
-          
           ctx.save();
           // Mirror bandana as well for consistency
           ctx.scale(-1, 1);
-          ctx.drawImage(
-            bandanaImageRef.current,
-            -(bandanaPos.x + bandanaPos.width),
-            bandanaPos.y,
-            bandanaPos.width,
-            bandanaPos.height
-          );
+          ctx.translate(-canvas.width, 0);
+          drawWrappedBandana(ctx, bandanaImageRef.current, landmarks, canvas.width, canvas.height);
           ctx.restore();
         }
       }
