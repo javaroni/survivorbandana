@@ -21,23 +21,27 @@ export function PreviewModal({ imageUrl, imageBlob, onClose, isOpen }: PreviewMo
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const handleSave = async () => {
-    // On mobile, prioritize Web Share API which integrates with Photos app
+    // On mobile, try Web Share API first which integrates with Photos app
     if (isMobile && canShareFiles()) {
-      const shared = await shareImage(imageBlob, 'survivor-50-selfie.png');
-      
-      if (shared) {
-        toast({
-          title: "Share to Save",
-          description: "Select 'Save Image' or 'Save to Photos' from the share menu",
-        });
-      } else {
-        // User cancelled, fall back to download
-        handleDownload();
+      try {
+        const shared = await shareImage(imageBlob, 'survivor-50-selfie.png');
+        
+        if (shared) {
+          toast({
+            title: "Saved",
+            description: "Select 'Save Image' from the share menu to save to Photos",
+          });
+          return; // Success, don't fall through to download
+        }
+        // User cancelled - fall through to download
+      } catch (error) {
+        console.error('Share failed:', error);
+        // Share API error - fall through to download
       }
-    } else {
-      // Desktop or share not available - use download
-      handleDownload();
     }
+    
+    // Fall back to download for desktop or if share failed/cancelled
+    handleDownload();
   };
 
   const handleDownload = () => {
