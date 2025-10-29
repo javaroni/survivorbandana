@@ -17,14 +17,37 @@ export function PreviewModal({ imageUrl, imageBlob, onClose, isOpen }: PreviewMo
 
   if (!isOpen) return null;
 
+  // Detect if we're on a mobile device
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  const handleSave = async () => {
+    // On mobile, prioritize Web Share API which integrates with Photos app
+    if (isMobile && canShareFiles()) {
+      const shared = await shareImage(imageBlob, 'survivor-50-selfie.png');
+      
+      if (shared) {
+        toast({
+          title: "Share to Save",
+          description: "Select 'Save Image' or 'Save to Photos' from the share menu",
+        });
+      } else {
+        // User cancelled, fall back to download
+        handleDownload();
+      }
+    } else {
+      // Desktop or share not available - use download
+      handleDownload();
+    }
+  };
+
   const handleDownload = () => {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       downloadBlob(imageBlob, `survivor-50-selfie-${timestamp}.png`);
       
       toast({
-        title: "Image Saved",
-        description: "Your Survivor 50 selfie has been downloaded!",
+        title: "Image Downloaded",
+        description: "Your Survivor 50 selfie has been saved to your downloads",
       });
     } catch (error) {
       toast({
@@ -47,12 +70,12 @@ export function PreviewModal({ imageUrl, imageBlob, onClose, isOpen }: PreviewMo
       if (canShareFiles()) {
         toast({
           title: "Share Cancelled",
-          description: "You can download the image instead.",
+          description: "You can save the image instead.",
         });
       } else {
         toast({
           title: "Share Not Available",
-          description: "Please download the image to share manually.",
+          description: "Please save the image instead.",
           variant: "destructive",
         });
       }
@@ -95,13 +118,13 @@ export function PreviewModal({ imageUrl, imageBlob, onClose, isOpen }: PreviewMo
         {/* Action buttons */}
         <div className="mt-6 flex flex-col gap-3">
           <Button
-            onClick={handleDownload}
+            onClick={handleSave}
             size="lg"
             className="w-full text-lg font-semibold uppercase tracking-wide"
-            data-testid="button-download"
+            data-testid="button-save"
           >
             <Download className="w-5 h-5 mr-2" />
-            Save to Device
+            Save to Photos
           </Button>
 
           <Button
@@ -112,7 +135,7 @@ export function PreviewModal({ imageUrl, imageBlob, onClose, isOpen }: PreviewMo
             data-testid="button-share"
           >
             <Share2 className="w-5 h-5 mr-2" />
-            Share
+            Share with Friends
           </Button>
 
           {/* CTA Link */}

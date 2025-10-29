@@ -146,9 +146,8 @@ function calculateHeadYaw(landmarks: LandmarkPoint[], isMirrored: boolean = fals
 }
 
 /**
- * Realistic curved bandana rendering with cylindrical wrapping
- * Works with face-api.js 68-point landmarks
- * Draws bandana as a curved surface wrapping around the head
+ * Simple perspective-based bandana rendering
+ * Uses transform matrix to apply 3D perspective effect
  */
 export function drawWrappedBandana(
   ctx: CanvasRenderingContext2D,
@@ -195,7 +194,7 @@ export function drawWrappedBandana(
     
     // Calculate bandana dimensions
     const faceWidth = Math.abs(rightX - leftX);
-    const bandanaWidth = faceWidth * 1.2;
+    const bandanaWidth = faceWidth * 1.3; // Slightly wider for better wrap
     const bandanaHeight = bandanaWidth * 0.35;
     
     // Calculate head rotation
@@ -207,102 +206,76 @@ export function drawWrappedBandana(
     // Slight tilt based on eyebrow angle
     const eyebrowTilt = Math.atan2(rightY - leftY, rightX - leftX);
     
-    // Draw bandana using curved perspective transformation
-    // Use many thin slices with generous overlap for continuous coverage
-    const numSlices = 80; // Many slices for smooth curve
-    
     ctx.save();
-    ctx.translate(foreheadCenterX, centerY + bandanaHeight / 2);
+    ctx.translate(foreheadCenterX, centerY);
     ctx.rotate(eyebrowTilt);
     
-    // Calculate all slice positions and widths
-    const sliceData: Array<{
-      x: number;
-      z: number;
-      scale: number;
-      brightness: number;
-      sourceX: number;
-      index: number;
-    }> = [];
+    // Apply perspective transform based on head rotation
+    // This creates a trapezoid effect that simulates wrapping
+    const skewAmount = headYaw / 60 * 0.3; // Scale rotation to skew amount
     
-    const curveAmount = 0.5; // Controls how much the bandana curves
+    // Calculate corner positions for perspective transform
+    // When head turns left, left side appears closer (larger)
+    // When head turns right, right side appears closer (larger)
+    const leftScale = 1 + Math.max(0, -headYaw / 60) * 0.3;
+    const rightScale = 1 + Math.max(0, headYaw / 60) * 0.3;
     
-    for (let i = 0; i < numSlices; i++) {
-      // Position from -1 (left) to +1 (right)
-      const normalizedPos = (i / (numSlices - 1)) * 2 - 1;
-      
-      // Calculate curve based on cylindrical projection
-      const angle = normalizedPos * Math.PI * curveAmount;
-      
-      // Apply head rotation to curve
-      const effectiveAngle = angle + (headYaw * Math.PI / 180) * 0.3;
-      
-      // Calculate 3D position on cylinder surface
-      const z = Math.cos(effectiveAngle);
-      const x = Math.sin(effectiveAngle) * bandanaWidth / 2;
-      
-      // Perspective scaling (things farther back appear smaller)
-      const perspective = 1.5; // Camera distance
-      const scale = perspective / (perspective + (1 - z) * 0.5);
-      
-      // Brightness based on surface normal (facing camera = brighter)
-      const brightness = 0.7 + z * 0.3;
-      
-      // Source x position in bandana image
-      const sourceX = (i / numSlices) * bandanaImage.width;
-      
-      // Skip slices that are on the back of the head
-      if (z >= -0.3) {
-        sliceData.push({ x, z, scale, brightness, sourceX, index: i });
-      }
-    }
+    // Top-left corner
+    const x0 = -bandanaWidth / 2 * leftScale;
+    const y0 = -bandanaHeight / 2;
     
-    // Draw slices from back to front for proper layering
-    sliceData.sort((a, b) => a.z - b.z);
+    // Top-right corner
+    const x1 = bandanaWidth / 2 * rightScale;
+    const y1 = -bandanaHeight / 2;
     
-    // Draw each slice with width calculated from spacing to neighbors
-    for (let i = 0; i < sliceData.length; i++) {
-      const slice = sliceData[i];
-      
-      // Calculate width to reach neighbor slices (generous overlap)
-      let sliceWidth = bandanaWidth / numSlices * 2.0; // 2x base width for overlap
-      
-      // For middle slices, calculate actual spacing to neighbors
-      if (i > 0 && i < sliceData.length - 1) {
-        const prevX = sliceData[i - 1].x;
-        const nextX = sliceData[i + 1].x;
-        const avgSpacing = Math.abs(nextX - prevX) / 2;
-        // Use 1.5x spacing to ensure overlap
-        sliceWidth = Math.max(sliceWidth, avgSpacing * 1.5);
-      }
-      
+    // Bottom-right corner
+    const x2 = bandanaWidth / 2 * rightScale;
+    const y2 = bandanaHeight / 2;
+    
+    // Bottom-left corner
+    const x3 = -bandanaWidth / 2 * leftScale;
+    const y3 = bandanaHeight / 2;
+    
+    // Use setTransform to apply perspective
+    // This maps the bandana image onto the trapezoid defined by our corners
+    const srcWidth = bandanaImage.width;
+    const srcHeight = bandanaImage.height;
+    
+    // Simple approach: divide bandana into 3 sections with different scaling
+    const sectionWidth = bandanaWidth / 3;
+    const sections = [
+      { x: x0, scale: leftScale, sourceX: 0 },
+      { x: 0, scale: 1, sourceX: srcWidth / 3 },
+      { x: sectionWidth, scale: rightScale, sourceX: srcWidth * 2 / 3 }
+    ];
+    
+    sections.forEach((section, i) => {
       ctx.save();
       
-      // Position this slice
-      ctx.translate(slice.x, 0);
+      // Position and scale each section
+      const xOffset = (i - 1) * sectionWidth;
+      ctx.translate(xOffset, 0);
+      ctx.scale(section.scale, 1);
       
-      // Apply perspective scaling
-      ctx.scale(slice.scale, 1);
+      // Add slight rotation to outer sections for wrapping effect
+      if (i === 0) {
+        ctx.rotate(Math.max(0, -headYaw / 60) * 0.2);
+      } else if (i === 2) {
+        ctx.rotate(Math.max(0, headYaw / 60) * -0.2);
+      }
       
-      // Apply brightness (darker when turned away)
-      ctx.globalAlpha = slice.brightness;
+      // Darken edges that are turned away
+      const brightness = i === 1 ? 1 : 0.85;
+      ctx.globalAlpha = brightness;
       
-      // Calculate source width (proportional to destination)
-      const baseSourceWidth = bandanaImage.width / numSlices;
-      const sourceWidth = Math.min(
-        baseSourceWidth * 2.5, 
-        bandanaImage.width - slice.sourceX
-      );
-      
-      // Draw this vertical slice of the bandana
       ctx.drawImage(
         bandanaImage,
-        slice.sourceX, 0, sourceWidth, bandanaImage.height,
-        -sliceWidth / 2, -bandanaHeight / 2, sliceWidth, bandanaHeight
+        section.sourceX, 0, srcWidth / 3, srcHeight,
+        -sectionWidth / 2, -bandanaHeight / 2, sectionWidth, bandanaHeight
       );
       
       ctx.restore();
-    }
+    });
     
     ctx.restore();
     
