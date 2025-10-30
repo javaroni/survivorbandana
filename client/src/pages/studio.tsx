@@ -1,367 +1,278 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "wouter";
-import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { BandanaPicker } from "@/components/BandanaPicker";
-import { BackgroundPicker } from "@/components/BackgroundPicker";
-import { CaptureButton } from "@/components/CaptureButton";
-import { PreviewModal } from "@/components/PreviewModal";
 import { useCamera } from "@/hooks/useCamera";
 import { useFaceTracking } from "@/hooks/useFaceTracking";
 import { useAudioCue } from "@/hooks/useAudioCue";
-import { compositeImage, loadImage, drawWrappedBandana } from "@/utils/compositor";
+import { Button } from "@/components/ui/button";
+import { PreviewModal } from "@/components/PreviewModal";
+import { Camera, AlertCircle, Loader2 } from "lucide-react";
+import { compositeImage, loadImage } from "@/utils/compositor";
 import type { Bandana, BackgroundScene } from "@shared/schema";
+import redBandanaPath from "@assets/generated_images/Red_tribal_bandana_headband_429c26b4.png";
+import flameBandanaPath from "@assets/generated_images/Orange_flame_bandana_headband_5333090e.png";
+import tealBandanaPath from "@assets/generated_images/Teal_ocean_bandana_headband_5495ec20.png";
+import beachBgPath from "@assets/generated_images/Tropical_island_beach_paradise_76942181.png";
+import campfireBgPath from "@assets/generated_images/Tribal_campfire_with_torches_0e4d6140.png";
+import tribalCouncilBgPath from "@assets/generated_images/Tribal_council_night_scene_d967f43c.png";
+import logoPath from "@assets/generated_images/Survivor_50_official_logo_3a48e0ed.png";
 
-import survivorBandana from "@assets/bandana_artwork_1761672466949.png";
-
-import beachBg from "@assets/generated_images/Tropical_island_beach_paradise_76942181.png";
-import campfireBg from "@assets/generated_images/Tribal_campfire_with_torches_0e4d6140.png";
-import tribalCouncilBg from "@assets/generated_images/Tribal_council_night_scene_d967f43c.png";
-
+// Bandana options
 const BANDANAS: Bandana[] = [
-  { id: "survivor", name: "Survivor 50", imagePath: survivorBandana },
+  { id: "red-tribal", name: "Red Tribal", imagePath: redBandanaPath },
+  { id: "flame-orange", name: "Flame Orange", imagePath: flameBandanaPath },
+  { id: "ocean-teal", name: "Ocean Teal", imagePath: tealBandanaPath },
 ];
 
+// Background options
 const BACKGROUNDS: BackgroundScene[] = [
-  { id: "beach", name: "Island Beach", imagePath: beachBg },
-  { id: "campfire", name: "Campfire", imagePath: campfireBg },
-  { id: "tribal", name: "Tribal Council", imagePath: tribalCouncilBg },
+  { id: "beach", name: "Island Beach", imagePath: beachBgPath },
+  { id: "campfire", name: "Campfire", imagePath: campfireBgPath },
+  { id: "tribal-council", name: "Tribal Council", imagePath: tribalCouncilBgPath },
 ];
 
 export default function Studio() {
-  const [, setLocation] = useLocation();
-  const [selectedBandana, setSelectedBandana] = useState<Bandana | null>(BANDANAS[0]);
-  const [selectedBackground, setSelectedBackground] = useState<BackgroundScene | null>(BACKGROUNDS[0]);
+  const { videoRef, startCamera, permissionState, error: cameraError, isReady } = useCamera();
+  const { landmarks, initialize: startTracking, isTracking } = useFaceTracking();
+  const { play: playCaptureCue } = useAudioCue();
+
+  const [selectedBandana, setSelectedBandana] = useState<Bandana>(BANDANAS[0]);
+  const [selectedBackground, setSelectedBackground] = useState<BackgroundScene>(BACKGROUNDS[0]);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [capturedImage, setCapturedImage] = useState<{ url: string; blob: Blob } | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const bandanaImageRef = useRef<HTMLImageElement | null>(null);
-  const landmarksRef = useRef<any>(null); // Ref to avoid render loop thrashing
-  const canvasSizeRef = useRef({ width: 0, height: 0 }); // Track canvas size to avoid unnecessary resizing
+  const [previewImage, setPreviewImage] = useState<{ url: string; blob: Blob } | null>(null);
+  const [showHint, setShowHint] = useState(true);
 
-  const { videoRef, permissionState, error: cameraError, startCamera, isReady } = useCamera();
-  const { landmarks, isTracking, initialize: initTracking, error: trackingError } = useFaceTracking();
-  const { play: playAudioCue, initializeAudio } = useAudioCue();
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Keep landmarks ref updated without triggering effects
+  // Start camera on mount
   useEffect(() => {
-    landmarksRef.current = landmarks;
+    startCamera();
+  }, [startCamera]);
+
+  // Start face tracking when video is ready
+  useEffect(() => {
+    if (isReady && videoRef.current) {
+      startTracking(videoRef.current);
+    }
+  }, [isReady, startTracking, videoRef]);
+
+  // Hide hint when face is detected
+  useEffect(() => {
+    if (landmarks && landmarks.length > 0) {
+      setShowHint(false);
+    }
   }, [landmarks]);
 
-  // Initialize camera and face tracking on mount
-  useEffect(() => {
-    const init = async () => {
-      console.log('Starting camera initialization...');
-      await startCamera();
-      console.log('Camera started');
-      await initializeAudio();
-      console.log('Audio initialized');
-    };
-    init();
-  }, []);
-
-  // WebGL context monitoring and memory tracking
-  useEffect(() => {
-    if (!canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-
-    // Monitor WebGL context lost events
-    const handleContextLost = (e: Event) => {
-      e.preventDefault();
-      console.error('🚨 WebGL context lost! GPU watchdog killed the context.');
-    };
-
-    const handleContextRestored = () => {
-      console.log('✅ WebGL context restored');
-    };
-
-    canvas.addEventListener('webglcontextlost', handleContextLost);
-    canvas.addEventListener('webglcontextrestored', handleContextRestored);
-
-    // Memory monitoring (every 2 seconds)
-    const memoryInterval = setInterval(() => {
-      if ((performance as any).memory) {
-        const mem = (performance as any).memory;
-        const usedMB = (mem.usedJSHeapSize / 1024 / 1024).toFixed(1);
-        const limitMB = (mem.jsHeapSizeLimit / 1024 / 1024).toFixed(1);
-        console.log(`💾 Memory: ${usedMB}MB / ${limitMB}MB`);
-      }
-    }, 2000);
-
-    return () => {
-      canvas.removeEventListener('webglcontextlost', handleContextLost);
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
-      clearInterval(memoryInterval);
-    };
-  }, []);
-
-  // Start face tracking when camera is ready
-  useEffect(() => {
-    console.log('isReady changed:', isReady, 'videoRef.current:', !!videoRef.current);
-    if (isReady && videoRef.current) {
-      console.log('Initializing face tracking...');
-      initTracking(videoRef.current);
-    }
-  }, [isReady, initTracking]);
-
-  // Load bandana image when selection changes
-  useEffect(() => {
-    if (selectedBandana) {
-      console.log('Loading bandana image:', selectedBandana.imagePath);
-      loadImage(selectedBandana.imagePath).then(img => {
-        console.log('Bandana image loaded:', img.width, 'x', img.height);
-        bandanaImageRef.current = img;
-      }).catch(err => {
-        console.error('Failed to load bandana image:', err);
-      });
-    }
-  }, [selectedBandana]);
-
-  // Canvas render loop - stable, doesn't depend on landmarks state
-  useEffect(() => {
-    if (!canvasRef.current || !videoRef.current || !isReady) return;
-
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let animationId: number;
-
-    const render = () => {
-      try {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-          // Only resize canvas when video dimensions change (not every frame!)
-          if (canvasSizeRef.current.width !== video.videoWidth || 
-              canvasSizeRef.current.height !== video.videoHeight) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvasSizeRef.current.width = video.videoWidth;
-            canvasSizeRef.current.height = video.videoHeight;
-          }
-
-          // Clear canvas for this frame
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-          // Mirror the video horizontally for selfie mode
-          ctx.save();
-          try {
-            ctx.scale(-1, 1);
-            ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-          } finally {
-            ctx.restore();
-          }
-
-          // Draw bandana overlay if face detected (use ref to avoid effect thrashing)
-          const currentLandmarks = landmarksRef.current;
-          if (currentLandmarks && currentLandmarks.length > 0 && bandanaImageRef.current) {
-            // Apply same mirroring as video for consistency
-            ctx.save();
-            try {
-              ctx.scale(-1, 1);
-              ctx.translate(-canvas.width, 0);
-              drawWrappedBandana(ctx, bandanaImageRef.current, currentLandmarks, canvas.width, canvas.height, true);
-            } finally {
-              ctx.restore();
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Render loop error:', error);
-      }
-
-      animationId = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-    };
-  }, [isReady]);
-
   const handleCapture = async () => {
-    if (!videoRef.current || !selectedBackground || isCapturing) {
-      console.log('Capture blocked:', { 
-        hasVideo: !!videoRef.current, 
-        hasBackground: !!selectedBackground, 
-        isCapturing 
-      });
-      return;
-    }
+    if (!videoRef.current || !previewCanvasRef.current || !landmarks) return;
 
     setIsCapturing(true);
-    console.log('Starting capture with background:', selectedBackground.name);
-
+    
     try {
-      // Play audio cue
-      await playAudioCue();
+      // Play capture sound
+      playCaptureCue();
 
-      // Small delay for audio feedback
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Set canvas to 1080x1920 for output
+      const canvas = previewCanvasRef.current;
+      canvas.width = 1080;
+      canvas.height = 1920;
 
-      // Load background image
-      console.log('Loading background image:', selectedBackground.imagePath);
-      const bgImage = await loadImage(selectedBackground.imagePath);
-      console.log('Background loaded successfully');
-      
-      // Composite the final image
-      console.log('Compositing image...');
-      const blob = await compositeImage({
-        backgroundImage: bgImage,
-        videoFrame: videoRef.current,
-        bandanaImage: bandanaImageRef.current,
-        landmarks: landmarks,
+      // Scale landmarks from video coordinate space to canvas coordinate space
+      const videoWidth = videoRef.current.videoWidth;
+      const videoHeight = videoRef.current.videoHeight;
+      const scaleX = canvas.width / videoWidth;
+      const scaleY = canvas.height / videoHeight;
+
+      const scaledLandmarks = landmarks.map(point => ({
+        x: point.x * scaleX,
+        y: point.y * scaleY,
+      }));
+
+      // Load all required images
+      const [bandanaImg, backgroundImg, logoImg] = await Promise.all([
+        loadImage(selectedBandana.imagePath),
+        loadImage(selectedBackground.imagePath),
+        loadImage(logoPath),
+      ]);
+
+      // Composite the final image with scaled landmarks
+      await compositeImage({
+        canvas,
+        selfieFrame: videoRef.current,
+        background: backgroundImg,
+        bandana: bandanaImg,
+        landmarks: scaledLandmarks,
+        logo: logoImg,
       });
-      console.log('Composite complete');
+
+      // Convert to blob and URL for preview
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), "image/png");
+      });
 
       const url = URL.createObjectURL(blob);
-      setCapturedImage({ url, blob });
-      setShowPreview(true);
+      setPreviewImage({ url, blob });
     } catch (error) {
-      console.error('Capture failed:', error);
-      alert('Capture failed: ' + (error as Error).message);
+      console.error("Capture failed:", error);
     } finally {
       setIsCapturing(false);
     }
   };
 
   const handleClosePreview = () => {
-    setShowPreview(false);
-    if (capturedImage) {
-      URL.revokeObjectURL(capturedImage.url);
-      setCapturedImage(null);
+    if (previewImage) {
+      URL.revokeObjectURL(previewImage.url);
+      setPreviewImage(null);
     }
   };
 
-  if (permissionState === 'denied' || cameraError) {
+  // Show error states
+  if (permissionState === "denied") {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background">
-        <div className="max-w-md w-full bg-card p-8 rounded-lg shadow-xl text-center space-y-4">
-          <AlertCircle className="w-16 h-16 text-destructive mx-auto" />
-          <h2 className="text-2xl font-display font-bold text-card-foreground">
-            Camera Access Required
-          </h2>
-          <p className="text-muted-foreground">
-            {cameraError || "Please allow camera access to use the AR Selfie Studio."}
-          </p>
-          <div className="flex flex-col gap-3 pt-4">
-            <Button onClick={startCamera} data-testid="button-retry-camera">
-              Try Again
-            </Button>
-            <Button variant="secondary" onClick={() => setLocation("/")} data-testid="button-back-home">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Home
-            </Button>
-          </div>
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background p-6">
+        <AlertCircle className="w-16 h-16 text-destructive mb-4" />
+        <h2 className="text-2xl font-display font-bold mb-2">Camera Access Denied</h2>
+        <p className="text-muted-foreground text-center mb-6 max-w-md">
+          {cameraError || "Please allow camera access to use the AR Selfie Studio"}
+        </p>
+        <Button onClick={startCamera} data-testid="button-retry-camera">
+          <Camera className="w-5 h-5 mr-2" />
+          Try Again
+        </Button>
+      </div>
+    );
+  }
+
+  if (permissionState === "error") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background p-6">
+        <AlertCircle className="w-16 h-16 text-destructive mb-4" />
+        <h2 className="text-2xl font-display font-bold mb-2">Camera Error</h2>
+        <p className="text-muted-foreground text-center mb-6 max-w-md">
+          {cameraError || "Unable to access camera"}
+        </p>
+        <Button onClick={startCamera} data-testid="button-retry-camera">
+          <Camera className="w-5 h-5 mr-2" />
+          Try Again
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-card">
-      {/* Hidden video element - always rendered so ref works */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="absolute w-0 h-0 opacity-0 pointer-events-none"
-      />
+    <div className="flex flex-col h-screen bg-background">
+      {/* Hidden canvas for compositing */}
+      <canvas ref={previewCanvasRef} className="hidden" />
 
-      {!isReady ? (
-        <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background">
-          <div className="text-center space-y-4">
-            <Loader2 className="w-16 h-16 text-primary animate-spin mx-auto" />
-            <h2 className="text-2xl font-display font-bold text-foreground">
-              Preparing Your Adventure...
-            </h2>
-            <p className="text-muted-foreground">
-              Initializing camera and face tracking
-            </p>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Header */}
-          <header className="flex items-center justify-between p-4 border-b border-card-border bg-card/80 backdrop-blur-md z-10">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setLocation("/")}
-              data-testid="button-back"
-              aria-label="Go back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <h1 className="text-lg font-display font-bold uppercase tracking-wide">
-              AR Studio
-            </h1>
-            <div className="w-10" />
-          </header>
+      {/* Video preview */}
+      <div className="relative flex-1 bg-black">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="absolute inset-0 w-full h-full object-cover"
+          data-testid="video-camera"
+        />
 
-          {/* Camera Preview */}
-          <div className="flex-1 relative bg-black overflow-hidden">
-            <canvas
-              ref={canvasRef}
-              className="absolute inset-0 w-full h-full object-cover"
-              data-testid="canvas-preview"
-            />
-
-            {/* Face detection indicator */}
-            {!isTracking && (
-              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full z-20">
-                <p className="text-xs text-white">Position your face in frame</p>
-              </div>
-            )}
-
-            {trackingError && (
-              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-destructive/90 backdrop-blur-sm px-4 py-2 rounded-full z-20">
-                <p className="text-xs text-destructive-foreground">{trackingError}</p>
-              </div>
-            )}
-
-            {/* Capture Button (centered at bottom) */}
-            <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2 z-20">
-              <CaptureButton
-                onCapture={handleCapture}
-                disabled={!isTracking || !selectedBackground}
-                isCapturing={isCapturing}
-              />
+        {/* Loading overlay */}
+        {!isReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+            <div className="text-center">
+              <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
+              <p className="text-white font-display">Starting Camera...</p>
             </div>
           </div>
+        )}
 
-          {/* Picker Panel */}
-          <div className="bg-card/90 backdrop-blur-lg border-t border-card-border p-4 space-y-4 animate-slide-up">
-            <BandanaPicker
-              bandanas={BANDANAS}
-              selected={selectedBandana}
-              onSelect={setSelectedBandana}
-            />
-            
-            <BackgroundPicker
-              backgrounds={BACKGROUNDS}
-              selected={selectedBackground}
-              onSelect={setSelectedBackground}
-            />
+        {/* Face detection hint */}
+        {isReady && showHint && !landmarks && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/70 text-white px-6 py-4 rounded-lg backdrop-blur-sm">
+            <p className="text-center font-display">Position your face in frame</p>
           </div>
+        )}
 
-          {/* Preview Modal */}
-          {capturedImage && (
-            <PreviewModal
-              imageUrl={capturedImage.url}
-              imageBlob={capturedImage.blob}
-              onClose={handleClosePreview}
-              isOpen={showPreview}
-            />
+        {/* Tracking indicator */}
+        {isTracking && landmarks && (
+          <div className="absolute top-4 right-4 flex items-center gap-2 bg-green-500/90 text-white px-3 py-1.5 rounded-full text-sm font-semibold">
+            <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+            Face Detected
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="bg-card border-t border-border p-4 space-y-4">
+        {/* Bandana picker */}
+        <div>
+          <p className="text-sm font-semibold mb-2 text-card-foreground">Bandana Style</p>
+          <div className="flex gap-2">
+            {BANDANAS.map((bandana) => (
+              <button
+                key={bandana.id}
+                onClick={() => setSelectedBandana(bandana)}
+                className={`flex-1 px-4 py-2 rounded-md font-medium transition-colors ${
+                  selectedBandana.id === bandana.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover-elevate active-elevate-2"
+                }`}
+                data-testid={`button-bandana-${bandana.id}`}
+              >
+                {bandana.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Background picker */}
+        <div>
+          <p className="text-sm font-semibold mb-2 text-card-foreground">Background Scene</p>
+          <div className="flex gap-2">
+            {BACKGROUNDS.map((bg) => (
+              <button
+                key={bg.id}
+                onClick={() => setSelectedBackground(bg)}
+                className={`flex-1 px-4 py-2 rounded-md font-medium transition-colors ${
+                  selectedBackground.id === bg.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover-elevate active-elevate-2"
+                }`}
+                data-testid={`button-background-${bg.id}`}
+              >
+                {bg.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Capture button */}
+        <Button
+          onClick={handleCapture}
+          disabled={!isReady || !landmarks || isCapturing}
+          size="lg"
+          className="w-full text-lg font-display font-bold uppercase tracking-wide"
+          data-testid="button-capture"
+        >
+          {isCapturing ? (
+            <>
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+              Capturing...
+            </>
+          ) : (
+            <>
+              <Camera className="w-5 h-5 mr-2" />
+              Capture Photo
+            </>
           )}
-        </>
+        </Button>
+      </div>
+
+      {/* Preview modal */}
+      {previewImage && (
+        <PreviewModal
+          imageUrl={previewImage.url}
+          imageBlob={previewImage.blob}
+          onClose={handleClosePreview}
+          isOpen={!!previewImage}
+        />
       )}
     </div>
   );
