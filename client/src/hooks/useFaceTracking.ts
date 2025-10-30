@@ -19,6 +19,8 @@ export function useFaceTracking(): UseFaceTrackingReturn {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastTsRef = useRef<number>(0);
   const modelsLoadedRef = useRef(false);
+  const lastDetectionRef = useRef<number>(0);
+  const missedFramesRef = useRef<number>(0);
 
   // Load models once
   const loadModels = useCallback(async () => {
@@ -53,11 +55,22 @@ export function useFaceTracking(): UseFaceTrackingReturn {
           .withFaceLandmarks(true);
 
         if (det?.landmarks) {
+          // Face detected - reset missed frames counter
+          missedFramesRef.current = 0;
+          lastDetectionRef.current = ts;
+          
           // Convert to your LandmarkPoint type
           const pts = det.landmarks.positions.map((p) => ({ x: p.x, y: p.y })) as LandmarkPoint[];
           setLandmarks(pts);
         } else {
-          setLandmarks(null);
+          // Face not detected - increment missed frames
+          missedFramesRef.current += 1;
+          
+          // Only clear landmarks after 10 consecutive missed frames (~600ms)
+          // This prevents flashing when detection is intermittent
+          if (missedFramesRef.current > 10) {
+            setLandmarks(null);
+          }
         }
       } catch (e: any) {
         setError(e?.message ?? String(e));
