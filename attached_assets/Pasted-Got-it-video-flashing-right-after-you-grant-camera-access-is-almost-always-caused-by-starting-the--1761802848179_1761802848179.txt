@@ -1,0 +1,203 @@
+Got it—video “flashing” right after you grant camera access is almost always caused by starting the camera twice (React StrictMode runs effects twice in dev), or by re-assigning srcObject / mounting-unmounting the <video> repeatedly due to state changes. Here’s a drop-in fix that stabilizes the stream and eliminates flicker.
+
+1) Use a robust useCamera hook (singleton stream, StrictMode-safe)
+
+Replace your camera hook with this:
+
+// client/src/hooks/useCamera.ts
+import { useCallback, useEffect, useRef, useState } from "react";
+
+type Constraints = MediaStreamConstraints;
+
+export function useCamera(constraints: Constraints = { video: { facingMode: "user" }, audio: false }) {
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const startedRef = useRef(false);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const attach = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (!el) return;
+    // iOS / mobile requirements
+    el.setAttribute("playsinline", "true");
+    el.muted = true;            // avoid autoplay restrictions
+    el.autoplay = true;
+  }, []);
+
+  const start = useCallback(async () => {
+    if (startedRef.current && streamRef.current) {
+      // Already running; just (re)attach to video if needed
+      if (videoRef.current && videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        // don't call play() in a tight loop; wait for metadata
+        videoRef.current.onloadedmetadata = () => videoRef.current?.play().catch(() => {});
+      }
+      return;
+    }
+    try {
+      setError(null);
+      // Guard against StrictMode double-invoke in development
+      if (startedRef.current && import.meta.env.DEV) return;
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      startedRef.current = true;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+          setReady(true);
+        };
+      } else {
+        setReady(true);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+      startedRef.current = false;
+      streamRef.current = null;
+      setReady(false);
+    }
+  }, [constraints]);
+
+  const stop = useCallback(() => {
+    if (streamRef.current) {
+      for (const t of streamRef.current.getTracks()) t.stop();
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      // Do NOT frequently set to null; only on intentional stop/unmount
+      videoRef.current.srcObject = null;
+    }
+    startedRef.current = false;
+    setReady(false);
+  }, []);
+
+  useEffect(() => {
+    // Clean up once on unmount (not on re-renders)
+    return () => stop();
+  }, [stop]);
+
+  return { attach, start, stop, ready, error, stream: streamRef.current };
+}
+
+
+Why this fixes flashing
+
+Prevents double getUserMedia calls (StrictMode).
+
+Keeps a single MediaStream alive; only attaches it to the <video> when needed.
+
+Avoids repeatedly nulling/setting srcObject during state updates.
+
+2) Use the hook correctly in your component
+// client/src/pages/Studio.tsx (relevant bits)
+import { useRef, useEffect } from "react";
+import { useCamera } from "@/hooks/useCamera";
+import { useFaceTracking } from "@/hooks/useFaceTracking"; // your fixed version
+
+export default function Studio() {
+  const videoEl = useRef<HTMLVideoElement>(null);
+  const { attach, start, ready, error } = useCamera({ video: { facingMode: "user" }, audio: false });
+  const { initialize: startTracking } = useFaceTracking();
+
+  useEffect(() => {
+    // Attach once when ref is set
+    if (videoEl.current) attach(videoEl.current);
+  }, [attach]);
+
+  useEffect(() => {
+    // Start camera once
+    start();
+  }, [start]);
+
+  useEffect(() => {
+    // Start tracking only after camera is ready and element exists
+    if (ready && videoEl.current) startTracking(videoEl.current);
+  }, [ready, startTracking]);
+
+  return (
+    <div className="relative w-full h-full">
+      <video
+        ref={videoEl}
+        className="absolute inset-0 w-full h-full object-cover"
+        // Important attributes also set in hook, but keeping here is harmless
+        playsInline
+        muted
+        autoPlay
+      />
+      {/* your canvas / UI here */}
+      {error && <div className="absolute bottom-2 left-2 text-red-500">{error}</div>}
+    </div>
+  );
+}
+
+3) CSS tweaks that reduce flicker
+
+Make sure your video isn’t being reflowed or transitioned on every frame:
+
+/* client/src/styles.css */
+video {
+  object-fit: cover;
+  backface-visibility: hidden;
+  transform: translateZ(0); /* helps on mobile GPUs */
+}
+
+/* Avoid binding video visibility to quickly-toggling state.
+   If you fade in, do it ONCE after ready === true. */
+.video-hidden {
+  opacity: 0;
+}
+.video-visible {
+  opacity: 1;
+  transition: opacity 200ms ease; /* not on every render/frame */
+}
+
+
+Do NOT toggle display: none / block or swap keys on the <video> while it’s playing—this causes teardown/reattach cycles and flashing.
+
+4) Common flashing triggers to remove
+
+Calling getUserMedia inside a render or inside an effect whose dependencies change frequently.
+
+Setting video.srcObject = null in an effect cleanup that runs on every re-render (StrictMode triggers this).
+
+Toggling classes that set display: none or re-parenting the <video>.
+
+Applying CSS animations on opacity tied to fast-changing flags like isTracking or landmarks count.
+
+Mounting the <video> inside a conditional that flips rapidly (e.g., {ready && <video/>}); instead, always render the <video> and control its opacity.
+
+5) If you also draw to a <canvas>
+
+Make sure your render loop doesn’t compete with layout:
+
+// In your compositor loop:
+let rafId: number | null = null;
+function loop() {
+  rafId = requestAnimationFrame(loop);
+  // draw to canvas here; DO NOT modify React state in this loop
+}
+function startLoop() {
+  if (rafId == null) rafId = requestAnimationFrame(loop);
+}
+function stopLoop() {
+  if (rafId != null) cancelAnimationFrame(rafId);
+  rafId = null;
+}
+
+
+Start this loop after ready is true.
+
+Avoid triggering React state updates in that loop; compute → draw only. Frequent state updates can cause layout thrash that looks like flashing.
+
+6) iOS/Safari specific
+
+If you target iOS:
+
+Ensure <video playsInline muted autoPlay> and set videoEl.muted = true; videoEl.autoplay = true; videoEl.setAttribute('playsinline','true').
+
+Avoid position: fixed for <video>; prefer absolute inside a fixed container.
+
+If still flickering when transformed, don’t animate transforms on the <video>; animate a wrapper div instead.

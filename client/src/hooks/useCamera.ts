@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import type { CameraPermissionState } from '@shared/schema';
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CameraPermissionState } from "@shared/schema";
 
 export interface UseCameraReturn {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -12,18 +12,35 @@ export interface UseCameraReturn {
 }
 
 export function useCamera(): UseCameraReturn {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const startedRef = useRef(false);
+  
   const [permissionState, setPermissionState] = useState<CameraPermissionState>('prompt');
-  const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
+    // If already running, just ensure video is attached
+    if (startedRef.current && streamRef.current) {
+      if (videoRef.current && videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
+      }
+      return;
+    }
+
     try {
       setError(null);
-      setPermissionState('prompt');
+      
+      // Guard against StrictMode double-invoke in development
+      if (startedRef.current && import.meta.env.DEV) {
+        return;
+      }
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
           width: { ideal: 1280, max: 1280, min: 640 },
@@ -32,92 +49,45 @@ export function useCamera(): UseCameraReturn {
         audio: false,
       });
 
-      // Apply constraints to the video track to ensure resolution is clamped
-      const videoTrack = mediaStream.getVideoTracks()[0];
+      // Apply constraints to video track
+      const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         try {
-          // First attempt: ideal/max/min constraints
           await videoTrack.applyConstraints({
             width: { ideal: 1280, max: 1280, min: 640 },
             height: { ideal: 720, max: 720, min: 360 },
           });
           
-          // Verify constraints were applied
           const settings = videoTrack.getSettings();
-          console.log(`📹 Applied constraints, got: ${settings.width}x${settings.height}`);
-          
-          // If still above 720p, force exact values
-          if (settings.width && settings.height && (settings.width > 1280 || settings.height > 720)) {
-            console.warn(`⚠️ Resolution ${settings.width}x${settings.height} exceeds 720p, forcing exact values...`);
-            await videoTrack.applyConstraints({
-              advanced: [{ width: 1280, height: 720 }]
-            });
-            const finalSettings = videoTrack.getSettings();
-            console.log(`📹 Forced exact resolution: ${finalSettings.width}x${finalSettings.height}`);
-          } else {
-            console.log('✅ Resolution constraints successfully applied');
-          }
+          console.log(`📹 Camera: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
         } catch (err) {
           console.warn('⚠️ Failed to apply constraints:', err);
         }
       }
 
-      setStream(mediaStream);
+      streamRef.current = stream;
+      startedRef.current = true;
       setPermissionState('granted');
 
-      // Wait for video element to be available
-      let attempts = 0;
-      while (!videoRef.current && attempts < 50) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        attempts++;
+      // Attach to video element if available
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.muted = true;
+        videoRef.current.autoplay = true;
+        
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().then(() => {
+            console.log('✅ Camera ready');
+            setIsReady(true);
+          }).catch((err) => {
+            console.error('Video play error:', err);
+            setIsReady(true);
+          });
+        };
+      } else {
+        setIsReady(true);
       }
-
-      if (!videoRef.current) {
-        console.error('Video element never became available');
-        setError('Failed to initialize video element');
-        return;
-      }
-
-      console.log('Video element found, setting srcObject');
-      videoRef.current.srcObject = mediaStream;
-      
-      // Wait for video to be ready with timeout
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          console.log('Video load timeout, forcing ready state');
-          setIsReady(true);
-          resolve();
-        }, 5000);
-
-        if (videoRef.current) {
-          videoRef.current.onloadedmetadata = () => {
-            clearTimeout(timeout);
-            const actualWidth = videoRef.current?.videoWidth || 0;
-            const actualHeight = videoRef.current?.videoHeight || 0;
-            console.log(`📹 Camera Resolution: ${actualWidth}x${actualHeight}`);
-            
-            // Log actual track settings
-            const track = mediaStream.getVideoTracks()[0];
-            if (track) {
-              const settings = track.getSettings();
-              console.log(`📹 Track Settings: ${settings.width}x${settings.height} @ ${settings.frameRate}fps`);
-            }
-            
-            console.log('Video metadata loaded');
-            videoRef.current?.play().then(() => {
-              console.log('Video playing, setting isReady to true');
-              setIsReady(true);
-              resolve();
-            }).catch((err) => {
-              console.error('Video play error:', err);
-              setIsReady(true);
-              resolve();
-            });
-          };
-        }
-      });
-      
-      console.log('Camera started, isReady should be true');
     } catch (err) {
       console.error('Camera access error:', err);
       
@@ -133,30 +103,37 @@ export function useCamera(): UseCameraReturn {
           setError('Failed to access camera. Please try again.');
         }
       }
-    }
-  };
-
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
+      
+      startedRef.current = false;
+      streamRef.current = null;
       setIsReady(false);
     }
+  }, []);
 
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-  };
+    
+    startedRef.current = false;
+    setIsReady(false);
+  }, []);
 
+  // Cleanup on unmount only
   useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   return {
     videoRef,
-    stream,
+    stream: streamRef.current,
     permissionState,
     error,
     startCamera,

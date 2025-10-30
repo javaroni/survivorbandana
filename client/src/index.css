@@ -347,4 +347,10 @@
   .animate-slide-up {
     animation: slide-up 0.3s ease-out;
   }
+
+  /* Video element optimizations to prevent flashing */
+  video {
+    backface-visibility: hidden;
+    transform: translateZ(0); /* GPU acceleration for mobile */
+  }
 }
