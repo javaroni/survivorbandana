@@ -62,11 +62,20 @@ export default function Studio() {
   }, [landmarks]);
 
   const handleCapture = async () => {
-    if (!videoRef.current || !previewCanvasRef.current || !landmarks) return;
+    if (!videoRef.current || !previewCanvasRef.current || !landmarks) {
+      console.error("❌ Missing required elements:", {
+        video: !!videoRef.current,
+        canvas: !!previewCanvasRef.current,
+        landmarks: !!landmarks
+      });
+      return;
+    }
 
     setIsCapturing(true);
     
     try {
+      console.log("📸 Starting capture...");
+      
       // Play capture sound
       playCaptureCue();
 
@@ -74,6 +83,7 @@ export default function Studio() {
       const canvas = previewCanvasRef.current;
       canvas.width = 1080;
       canvas.height = 1920;
+      console.log(`✅ Canvas set to ${canvas.width}x${canvas.height}`);
 
       // Scale landmarks from video coordinate space to canvas coordinate space
       const videoWidth = videoRef.current.videoWidth;
@@ -81,19 +91,35 @@ export default function Studio() {
       const scaleX = canvas.width / videoWidth;
       const scaleY = canvas.height / videoHeight;
 
+      console.log(`📏 Video: ${videoWidth}x${videoHeight}, Scale: ${scaleX.toFixed(2)}x${scaleY.toFixed(2)}`);
+
       const scaledLandmarks = landmarks.map(point => ({
         x: point.x * scaleX,
         y: point.y * scaleY,
       }));
+      console.log(`✅ Scaled ${landmarks.length} landmarks`);
 
       // Load all required images
+      console.log("🖼️ Loading images...", {
+        bandana: selectedBandana.imagePath,
+        background: selectedBackground.imagePath,
+        logo: logoPath
+      });
+      
       const [bandanaImg, backgroundImg, logoImg] = await Promise.all([
         loadImage(selectedBandana.imagePath),
         loadImage(selectedBackground.imagePath),
         loadImage(logoPath),
       ]);
 
+      console.log("✅ Images loaded:", {
+        bandana: `${bandanaImg.width}x${bandanaImg.height}`,
+        background: `${backgroundImg.width}x${backgroundImg.height}`,
+        logo: `${logoImg.width}x${logoImg.height}`
+      });
+
       // Composite the final image with scaled landmarks
+      console.log("🎨 Starting composite...");
       await compositeImage({
         canvas,
         selfieFrame: videoRef.current,
@@ -102,16 +128,20 @@ export default function Studio() {
         landmarks: scaledLandmarks,
         logo: logoImg,
       });
+      console.log("✅ Composite complete");
 
       // Convert to blob and URL for preview
       const blob = await new Promise<Blob>((resolve) => {
         canvas.toBlob((b) => resolve(b!), "image/png");
       });
 
+      console.log(`✅ Blob created: ${(blob.size / 1024).toFixed(1)}KB`);
+
       const url = URL.createObjectURL(blob);
       setPreviewImage({ url, blob });
+      console.log("✅ Capture complete!");
     } catch (error) {
-      console.error("Capture failed:", error);
+      console.error("❌ Capture failed:", error);
     } finally {
       setIsCapturing(false);
     }

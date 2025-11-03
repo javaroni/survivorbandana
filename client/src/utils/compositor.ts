@@ -60,23 +60,43 @@ export async function compositeImage(opts: {
 }) {
   const { canvas, selfieFrame, background, bandana, landmarks, logo } = opts;
   const ctx = canvas.getContext("2d")!;
+  
+  console.log("🎨 compositeImage called with:", {
+    canvasSize: `${canvas.width}x${canvas.height}`,
+    hasBackground: !!background,
+    hasSelfie: !!selfieFrame,
+    hasBandana: !!bandana,
+    landmarkCount: landmarks?.length || 0,
+    hasLogo: !!logo
+  });
+  
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // 1) Background first
   if (background) {
+    console.log(`  📐 Drawing background: ${background.width}x${background.height}`);
     ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
+  } else {
+    console.warn("  ⚠️ No background provided");
   }
 
   // 2) Selfie frame (optional)
   if (selfieFrame instanceof HTMLVideoElement) {
+    console.log(`  📹 Drawing video frame: ${selfieFrame.videoWidth}x${selfieFrame.videoHeight}`);
     ctx.drawImage(selfieFrame, 0, 0, canvas.width, canvas.height);
   } else if (selfieFrame instanceof HTMLImageElement) {
+    console.log(`  🖼️ Drawing image frame: ${selfieFrame.width}x${selfieFrame.height}`);
     ctx.drawImage(selfieFrame, 0, 0, canvas.width, canvas.height);
+  } else {
+    console.warn("  ⚠️ No selfie frame provided");
   }
 
   // 3) Bandana aligned to landmarks
   if (bandana && landmarks?.length) {
+    console.log(`  🎀 Drawing bandana with ${landmarks.length} landmarks`);
     drawWrappedBandana(ctx, bandana, landmarks);
+  } else {
+    console.warn("  ⚠️ No bandana or landmarks:", { hasBandana: !!bandana, landmarkCount: landmarks?.length || 0 });
   }
 
   // 4) Optional logo overlay
@@ -85,8 +105,13 @@ export async function compositeImage(opts: {
     const h = (w * logo.height) / logo.width;
     const x = canvas.width * 0.5 - w / 2;
     const y = canvas.height * 0.06;
+    console.log(`  🏆 Drawing logo at (${x.toFixed(0)}, ${y.toFixed(0)}) size ${w.toFixed(0)}x${h.toFixed(0)}`);
     ctx.drawImage(logo, x, y, w, h);
+  } else {
+    console.warn("  ⚠️ No logo provided");
   }
+  
+  console.log("✅ compositeImage complete");
 }
 
 // Download blob helper
